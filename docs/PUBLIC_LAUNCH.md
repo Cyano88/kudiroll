@@ -47,6 +47,7 @@ Implemented security baseline: sensitive Paycrest routes require a wallet-signed
 - Replace `.data/kudiroll.json` and in-memory sessions before multi-instance deployment.
 - Add schema migrations, encryption, backups, retention, account deletion, rate limiting, telemetry, alerting, and rollback.
 - Configure `NODE_ENV=production`, `HOST=0.0.0.0`, a deployment-assigned `PORT`, a dedicated `STARKNET_RPC_URL`, and server-only secrets.
+- For Railway CLI deployments, set `KUDIROLL_RELEASE_SHA` to the exact reviewed commit. The health endpoint prefers it because `RAILWAY_GIT_COMMIT_SHA` can remain on earlier Git-source metadata during a CLI upload.
 
 ### 4. Limited alpha
 
