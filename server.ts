@@ -25,7 +25,7 @@ app.get('/api/health', (_req, res) => res.json({
   service: 'kudiroll',
   network: 'starknet-mainnet',
   persistence: process.env.KUDIROLL_DATA_FILE ? 'configured-file' : 'local-file',
-  release: process.env.KUDIROLL_RELEASE_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || 'development',
+  release: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.KUDIROLL_RELEASE_SHA || 'development',
   environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
 }))
 app.use('/api/phase0', createPhase0Router())

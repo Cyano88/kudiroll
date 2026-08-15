@@ -159,7 +159,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 13. Phase 6 — Mainnet certification and anti-stale deployment
 
-**Status:** planned.
+**Status:** public-alpha deployment portion complete 2026-08-15; Mainnet certification pending. Railway deploys `main` through `railway.json`, one replica uses a persistent `/app/.data` volume, `/api/health` reports the Git commit, and signed-out desktop/mobile smoke tests passed at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
 
 1. Deploy only a CI-built artifact from the reviewed main commit; record artifact digest, commit SHA, environment, and deployment URL.
 2. Require post-deploy smoke tests and compare the live commit with GitHub before announcing a release.

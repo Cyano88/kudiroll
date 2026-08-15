@@ -2,7 +2,7 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-> **Release status:** public alpha preparation. WalletAccountV6 discovery, typed STRK20 operations, and the shield simulation/approval screen are implemented and tested. Public deployment remains blocked on production persistence, operational controls, and live Ready X Mainnet certification. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). WalletAccountV6 discovery, typed STRK20 operations, and the shield simulation/approval screen are implemented and tested. Mainnet certification, production database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
@@ -24,7 +24,7 @@ Every receiving address must first be registered with the compatible privacy wal
 - Teams, workers, and pay-run snapshots are isolated by wallet address.
 - Local development persists data atomically in `.data/kudiroll.json`; the file is ignored by Git.
 - A server restart requires a fresh wallet signature but does not erase account data.
-- Production should replace the local JSON adapter with a managed database and deployment secret before multi-instance use.
+- The Railway public alpha runs one replica with `.data` on a persistent volume. Production must replace the JSON adapter with a managed database and durable sessions before multi-instance use.
 
 KudiRoll does not request or store wallet private keys, viewing keys, notes, proofs, OTPs, or bank details. Worker names and payroll amounts are business data and therefore require production-grade database encryption, backup, retention, and access controls before public use.
 
