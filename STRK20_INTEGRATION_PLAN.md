@@ -12,7 +12,7 @@ Generated 2026-08-15 by the `strk20-privacy-integration` skill. This is the exec
 - Backend: `src/server/account-router.ts` handles wallet-signed sessions; `src/server/account-store.ts` stores business, team, and pay-run data in a local JSON file; `src/server/phase0-router.ts` and `src/server/paycrest.ts` isolate the Paycrest API behind the server.
 - Tests: Node test runner in `tests/account-store.test.ts` and `tests/phase0.test.ts`; GitHub Actions in `.github/workflows/ci.yml`.
 - Contracts: no Cairo/Scarb project and no app-owned Starknet account or viewing key.
-- Repository state at generation: no public remote, no reviewed first commit, no license, no `strk20.json`, no live deployment, and no mainnet evidence hashes.
+- Repository state: public MIT-licensed source at `https://github.com/Cyano88/kudiroll` with green CI and a valid empty `strk20.json`; no live deployment, demo video, or mainnet evidence hashes yet.
 - Privacy goal: conceal the employer-to-worker relationship, individual recipients, amounts, token type, and spent notes during payroll; make shield and intentional settlement exits visibly public; preserve a controlled evidence trail for legitimate investigation without exposing unrelated workers.
 - Environment: Starknet Mainnet with Ready as the first certified privacy wallet. Standard wallets may authenticate to KudiRoll but private actions degrade gracefully when STRK20 capability is absent.
 
@@ -62,9 +62,9 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - Test with the current Ready extension and the public wallet test dapp.
 - Re-run the skill freshness checker and fetch the current WalletAccount guide before Phase 1 implementation; if 6.0.4 regresses the documented STRK20 flow, record the evidence and temporarily use the last verified 6.0.3 pair rather than mixing patch versions.
 
-## 7. Phase 0 — public, reproducible baseline
+## 7. Phase 0 — public, reproducible baseline ✅ done 2026-08-15
 
-**Status:** planned; begins only after this plan is approved.
+**Status:** complete. Baseline commit `cad7162` created the reviewed source; commit `82ac7ff` moved CI to current GitHub Actions v7; both local and clean-clone checks passed with 15/15 tests, typecheck/build success, and zero npm vulnerabilities. The public repository and MIT license are verified; registry submission remains Phase 7 because the required public Telegram username is not yet supplied.
 
 1. Review all untracked files and generated/local data exclusions; confirm no worker, wallet, bank, credential, or secret data can enter git.
 2. Add MIT `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, root `strk20.json` with empty evidence fields, and repository metadata.
