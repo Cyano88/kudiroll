@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react'
-import { connect, disconnect } from '@starknet-io/get-starknet'
+import { createStore } from '@starknet-io/get-starknet-discovery'
+import type { WalletWithStarknetFeatures } from '@starknet-io/get-starknet-wallet-standard/features'
+import { constants, WalletAccountV6, walletV6 } from 'starknet'
 import {
-  STRK20_API_VERSION,
   isStarknetAddress,
   requireStarknetMainnet,
   readPrivateUsdcBalance,
   simulatePrivatePayroll,
   simulatePaycrestWithdraw,
+  simulateUsdcShield,
   submitPrivatePayroll,
   submitPaycrestWithdraw,
-  supportedWalletApi,
-  type WalletRequest,
+  submitUsdcShield,
+  supportsStrk20Api,
+  withTimeout,
 } from './phase0'
+
+const walletStore = createStore()
 
 type Check = { ok: boolean; detail: string }
 type PublicProbe = {
@@ -50,14 +55,7 @@ type PaycrestOrderSummary = {
   updatedAt: string
   txHash: string
 }
-type ConnectedWallet = {
-  id?: string
-  name?: string
-  selectedAddress?: string
-  chainId?: string | number | bigint
-  account?: { address?: string; signMessage?: (typedData: unknown) => Promise<unknown> }
-  request: WalletRequest
-}
+type ConnectedWallet = WalletAccountV6
 type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
 type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
@@ -79,6 +77,15 @@ function privateBalanceError(reason: unknown) {
   if (/USER_REFUSED_OP/i.test(message)) return 'Request cancelled in Ready.'
   if (/API_VERSION_NOT_SUPPORTED/i.test(message)) return 'Ready does not support the requested STRK20 API version.'
   return `Could not read private USDC: ${message}`
+}
+
+function privacyActionError(reason: unknown) {
+  const message = readableError(reason)
+  if (/SCREEN|SANCTION|COMPLIANCE|POLICY/i.test(message)) return 'The wallet screening check did not approve this request. Nothing was submitted.'
+  if (/USER_REFUSED|USER_REJECTED|rejected by user|cancelled/i.test(message)) return 'Wallet approval was cancelled. Nothing was submitted.'
+  if (/NOT_REGISTERED/i.test(message)) return 'This wallet has no shielded STRK20 account yet. Shield USDC first.'
+  if (/API_VERSION_NOT_SUPPORTED|not support.*STRK20/i.test(message)) return 'This wallet does not support the required STRK20 privacy API.'
+  return message
 }
 
 function transactionLabel(result: unknown) {
@@ -106,6 +113,7 @@ export function App() {
   const [publicProbe, setPublicProbe] = useState<PublicProbe | null>(null)
   const [probeError, setProbeError] = useState('')
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null)
+  const [walletChoices, setWalletChoices] = useState<WalletWithStarknetFeatures[]>(() => walletStore.getWallets())
   const [accountData, setAccountData] = useState<AccountData | null>(null)
   const [walletVersions, setWalletVersions] = useState<string[]>([])
   const [privateBalance, setPrivateBalance] = useState('Not checked')
@@ -127,8 +135,13 @@ export function App() {
   const [liveConfirmation, setLiveConfirmation] = useState('')
   const [busy, setBusy] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [shieldAmount, setShieldAmount] = useState('1')
+  const [shieldConfirmation, setShieldConfirmation] = useState('')
+  const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
+  const [shieldMessage, setShieldMessage] = useState('Simulate first. Shielding then requires a public token approval and a public pool deposit in your wallet.')
+  const [shieldTransactionHash, setShieldTransactionHash] = useState('')
 
-  const walletAddress = wallet?.account?.address || wallet?.selectedAddress || ''
+  const walletAddress = wallet?.address || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
   const accountIsVerified = verifiedAccount?.fingerprint === accountFingerprint
   const orderExpired = order ? Date.parse(order.validUntil) <= now : true
@@ -137,6 +150,14 @@ export function App() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const update = (wallets: readonly WalletWithStarknetFeatures[]) => setWalletChoices([...wallets])
+    update(walletStore.getWallets())
+    const unsubscribe = walletStore.subscribe(update)
+    walletStore._refreshInjectedWallets()
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -214,16 +235,22 @@ export function App() {
     }
   }
 
-  async function connectWallet(): Promise<ConnectedWallet | null> {
+  async function connectWallet(selectedWallet?: WalletWithStarknetFeatures): Promise<ConnectedWallet | null> {
     setBusy('wallet')
     try {
-      const connected = await connect()
-      if (!connected) throw new Error('No Starknet wallet was selected.')
-      const next = connected as unknown as ConnectedWallet
-      requireStarknetMainnet(next.chainId)
+      const choice = selectedWallet
+        ?? walletChoices.find(candidate => /ready/i.test(candidate.name))
+        ?? walletChoices[0]
+      if (!choice) throw new Error('No Starknet wallet was detected. Install Ready X or Xverse, then refresh this page.')
+      const next = await withTimeout(
+        WalletAccountV6.connect({ nodeUrl: constants.NetworkName.SN_MAIN }, choice),
+        60_000,
+        'Wallet connection timed out. Reopen the wallet and try again.',
+      )
+      requireStarknetMainnet(await walletV6.requestChainId(choice))
       let versions: string[] = []
       try {
-        versions = await supportedWalletApi(next.request.bind(next))
+        versions = (await walletV6.supportedWalletApi(choice)).map(String)
       } catch {
         // Standard Starknet wallets can still authenticate and manage account data.
         // Private payroll remains gated on an advertised STRK20 capability.
@@ -239,16 +266,14 @@ export function App() {
     }
   }
 
-  async function signIn() {
-    const connected = await connectWallet()
+  async function signIn(selectedWallet?: WalletWithStarknetFeatures) {
+    const connected = await connectWallet(selectedWallet)
     if (!connected) return
-    const address = connected.account?.address || connected.selectedAddress || ''
+    const address = connected.address
     try {
       setBusy('account')
       const challenge = await accountJson('/api/account/challenge', { method: 'POST', body: JSON.stringify({ address }) })
-      const rawSignature = connected.account?.signMessage
-        ? await connected.account.signMessage(challenge.challenge.typedData)
-        : await connected.request({ type: 'wallet_signTypedData', params: challenge.challenge.typedData })
+      const rawSignature: unknown = await connected.signMessage(challenge.challenge.typedData)
       const signature = Array.isArray(rawSignature)
         ? rawSignature.map(String)
         : rawSignature && typeof rawSignature === 'object' && 'r' in rawSignature && 's' in rawSignature
@@ -288,7 +313,8 @@ export function App() {
 
   async function leaveWallet() {
     await accountJson('/api/account/session', { method: 'DELETE' }).catch(() => undefined)
-    await disconnect({ clearLastWallet: true }).catch(() => undefined)
+    const disconnectFeature = wallet?.walletProvider.features['standard:disconnect']
+    if (disconnectFeature) await disconnectFeature.disconnect().catch(() => undefined)
     setWallet(null)
     setWalletVersions([])
     setPrivateBalance('Not checked')
@@ -306,14 +332,14 @@ export function App() {
 
   async function checkBalance() {
     if (!wallet) return
-    if (!walletVersions.includes(STRK20_API_VERSION)) {
+    if (!supportsStrk20Api(walletVersions)) {
       setPrivateBalanceUsdc(null)
       setPrivateBalance('This wallet does not advertise the Ready STRK20 private-payroll API.')
       return
     }
     setBusy('balance')
     try {
-      const balances = await readPrivateUsdcBalance(wallet.request.bind(wallet))
+      const balances = await withTimeout(readPrivateUsdcBalance(wallet), 60_000)
       const units = BigInt(balances[0]?.balance || '0x0')
       const value = Number(units) / 1_000_000
       setPrivateBalanceUsdc(value)
@@ -321,6 +347,43 @@ export function App() {
     } catch (error) {
       setPrivateBalanceUsdc(null)
       setPrivateBalance(privateBalanceError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function simulateShield() {
+    if (!wallet || !supportsStrk20Api(walletVersions)) {
+      setShieldState('failed')
+      setShieldMessage('Connect Ready X or another wallet that advertises STRK20 Wallet API 0.10.3 or newer.')
+      return
+    }
+    setBusy('simulate-shield')
+    setShieldTransactionHash('')
+    try {
+      await withTimeout(simulateUsdcShield(wallet, shieldAmount), 90_000)
+      setShieldState('passed')
+      setShieldMessage('Simulation passed for ' + shieldAmount + ' USDC. To continue, type SHIELD USDC. Your wallet will show two public prompts: token approval, then pool deposit.')
+    } catch (error) {
+      setShieldState('failed')
+      setShieldMessage(privacyActionError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function shieldUsdc() {
+    if (!wallet || shieldState !== 'passed' || shieldConfirmation !== 'SHIELD USDC') return
+    setBusy('submit-shield')
+    try {
+      const result = await withTimeout(submitUsdcShield(wallet, shieldAmount), 180_000, 'The wallet did not return before timeout. Check your wallet and Starkscan before retrying; the transaction may still have been submitted.')
+      setShieldState('submitted')
+      setShieldTransactionHash(result.transaction_hash)
+      setShieldMessage('Shield transaction submitted. Wait for finality and about 10 blocks of separation before preparing payroll, then refresh the private balance.')
+      setShieldConfirmation('')
+    } catch (error) {
+      setShieldState('failed')
+      setShieldMessage(privacyActionError(error))
     } finally {
       setBusy('')
     }
@@ -415,7 +478,7 @@ export function App() {
     try {
       if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order has expired. Create a fresh order.')
       if (!exactAmountCovered) throw new Error('The exact order amount exceeds the last checked private USDC balance.')
-      await simulatePaycrestWithdraw(wallet.request.bind(wallet), order.receiveAddress, order.amountUsdc)
+      await withTimeout(simulatePaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 90_000)
       setSimulationState('passed')
       setSimulationMessage('Ready accepted the simulation. Review the exact order below, then unlock wallet approval.')
     } catch (error) {
@@ -431,7 +494,7 @@ export function App() {
     setBusy('submit')
     try {
       if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order expired before approval. Do not send to it.')
-      const result = await submitPaycrestWithdraw(wallet.request.bind(wallet), order.receiveAddress, order.amountUsdc)
+      const result = await withTimeout(submitPaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 180_000)
       setSimulationState('submitted')
       setSimulationMessage(transactionLabel(result))
       setLiveConfirmation('')
@@ -447,6 +510,7 @@ export function App() {
     return <SignInLanding
       theme={theme}
       busy={busy === 'wallet' || busy === 'account'}
+      wallets={walletChoices}
       legalView={legalView}
       onSignIn={signIn}
       onOpenLegal={setLegalView}
@@ -490,6 +554,15 @@ export function App() {
     </section>
   </div>
 
+  const shieldPanel = <section className="panel shieldPanel">
+    <div className="panelTitle"><div><span>Shield treasury</span><h3>Move public USDC into private payroll</h3></div><span className={'statePill ' + (shieldState === 'submitted' ? 'safe' : shieldState === 'failed' ? 'blocked' : 'neutral')}>{shieldState === 'submitted' ? 'Submitted' : shieldState === 'passed' ? 'Ready to approve' : shieldState === 'failed' ? 'Needs attention' : 'Simulation required'}</span></div>
+    <p className="shieldDisclosure">Shielding is public: your wallet address, token amount, approval, and deposit timing are visible onchain. Private payroll begins only after USDC enters the STRK20 pool.</p>
+    <div className="shieldSteps"><div><strong>1</strong><span>Public USDC approval</span></div><div><strong>2</strong><span>Public pool deposit</span></div><div><strong>3</strong><span>Wait about 10 blocks</span></div></div>
+    <div className="shieldControls"><label>Amount to shield<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation(''); setShieldTransactionHash('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in wallet...' : 'Simulate shield'}</button></div>
+    <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Simulation passed' : shieldState === 'submitted' ? 'Shield submitted' : shieldState === 'failed' ? 'Shield not ready' : 'No transaction yet'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>
+    {shieldState === 'passed' && <div className="shieldApproval"><label>Type SHIELD USDC to continue<input value={shieldConfirmation} onChange={event => setShieldConfirmation(event.target.value)} placeholder="SHIELD USDC" autoComplete="off" /></label><button onClick={shieldUsdc} disabled={shieldConfirmation !== 'SHIELD USDC' || Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for wallet...' : 'Shield ' + (shieldAmount || '0') + ' USDC'}</button></div>}
+  </section>
+
   return <ProductShell
     theme={theme}
     section={section}
@@ -503,6 +576,7 @@ export function App() {
     paycrestOrders={paycrestOrders}
     orderHistoryError={orderHistoryError}
     paycrestPilot={paycrestPilot}
+    shieldPanel={shieldPanel}
     accountData={accountData}
     onMutateAccount={mutateAccount}
     onRefreshOrders={loadPaycrestOrders}
@@ -517,6 +591,7 @@ export function App() {
 function SignInLanding({
   theme,
   busy,
+  wallets,
   legalView,
   onSignIn,
   onOpenLegal,
@@ -525,8 +600,9 @@ function SignInLanding({
 }: {
   theme: Theme
   busy: boolean
+  wallets: WalletWithStarknetFeatures[]
   legalView: 'terms' | 'privacy' | null
-  onSignIn: () => void
+  onSignIn: (wallet?: WalletWithStarknetFeatures) => void
   onOpenLegal: (view: 'terms' | 'privacy') => void
   onCloseLegal: () => void
   onToggleTheme: () => void
@@ -560,11 +636,8 @@ function SignInLanding({
         <h1 id="sign-in-title">Sign in to continue</h1>
         <p className="signInBody">Connect the wallet you use for private payroll.</p>
 
-        <button className="signInPrimary" onClick={onSignIn} disabled={busy}>
-          <span>{busy ? 'Opening wallet...' : 'Continue with wallet'}</span>
-          <i aria-hidden="true">→</i>
-        </button>
-        <p className="signInHint">Ready X or a compatible Starknet wallet</p>
+        {wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Continue with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <a className="walletInstall" href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X to continue</a>}
+        <p className="signInHint">Ready X and Xverse support STRK20 privacy. Other Starknet wallets can still sign in.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
@@ -595,6 +668,7 @@ function ProductShell({
   paycrestOrders,
   orderHistoryError,
   paycrestPilot,
+  shieldPanel,
   accountData,
   onMutateAccount,
   onRefreshOrders,
@@ -616,6 +690,7 @@ function ProductShell({
   paycrestOrders: PaycrestOrderSummary[]
   orderHistoryError: string
   paycrestPilot: React.ReactNode
+  shieldPanel: React.ReactNode
   accountData: AccountData | null
   onMutateAccount: (path: string, init: RequestInit) => Promise<any>
   onRefreshOrders: () => void
@@ -658,7 +733,7 @@ function ProductShell({
   const selectedTeam = teams.find(team => team.id === selectedTeamId) ?? teams[0] ?? null
   const selectedItems = selectedTeam?.workers.filter(worker => selectedWorkers[worker.id] !== false) ?? []
   const totalDraft = selectedItems.reduce((sum, worker) => sum + Number(draftAmounts[worker.id] || worker.defaultAmountUsdc || 0), 0)
-  const supportsPrivatePayroll = walletVersions.includes(STRK20_API_VERSION)
+  const supportsPrivatePayroll = supportsStrk20Api(walletVersions)
   const pageTitle: Record<ProductSection, string> = {
     overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
     providers: 'Payout methods', settings: 'Business profile', lab: 'Guided payout test',
@@ -769,7 +844,7 @@ function ProductShell({
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
     setAccountAction('simulate-batch')
     try {
-      await simulatePrivatePayroll(wallet.request.bind(wallet), activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc })))
+      await withTimeout(simulatePrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 90_000)
       await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'prepared' }) })
       setActivePayRun(current => current ? { ...current, status: 'prepared' } : current)
       setBatchState('passed')
@@ -786,7 +861,7 @@ function ProductShell({
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
     setAccountAction('submit-batch')
     try {
-      const result = await submitPrivatePayroll(wallet.request.bind(wallet), activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc })))
+      const result = await withTimeout(submitPrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 180_000)
       const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
       const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
       if (!transactionHash) throw new Error('Ready returned no transaction hash.')
@@ -837,6 +912,8 @@ function ProductShell({
             </article>
             <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => onSection('workers')}>Manage teams</button></article>
           </div>
+
+          {shieldPanel}
 
           <section className="panel recentPanel">
             <div className="panelTitle"><div><span>Pay runs</span><h3>Recent payments</h3></div><button className="plainButton" onClick={() => onSection('activity')}>View history</button></div>

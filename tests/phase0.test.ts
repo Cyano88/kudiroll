@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildDepositAction, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, requireStarknetMainnet, toUsdcBaseUnits } from '../src/phase0'
+import { buildDepositAction, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, normalizeStarknetAddress, requireStarknetMainnet, simulateUsdcShield, supportsStrk20Api, toUsdcBaseUnits, withTimeout } from '../src/phase0'
 import {
   STARKNET_USDC,
   createPhase0PaycrestOrder,
@@ -15,6 +15,22 @@ test('validates Starknet addresses without accepting EVM-length assumptions', ()
   assert.equal(isStarknetAddress(`0x${'a'.repeat(64)}`), true)
   assert.equal(isStarknetAddress(`0x${'a'.repeat(65)}`), false)
   assert.equal(isStarknetAddress('not-an-address'), false)
+})
+
+test('normalizes Starknet addresses before constructing actions', () => {
+  assert.equal(normalizeStarknetAddress('  0xAbC  '), '0xabc')
+  assert.throws(() => normalizeStarknetAddress('SN_MAIN'), /valid Starknet address/)
+})
+
+test('accepts compatible STRK20 API versions without exact-string gating', () => {
+  assert.equal(supportsStrk20Api(['0.10.3']), true)
+  assert.equal(supportsStrk20Api(['0.10.4']), true)
+  assert.equal(supportsStrk20Api(['0.11.0']), true)
+  assert.equal(supportsStrk20Api(['0.10.2', 'invalid']), false)
+})
+
+test('times out a wallet operation with a useful error', async () => {
+  await assert.rejects(withTimeout(new Promise(() => undefined), 5), /Wallet request timed out/)
 })
 
 test('accepts Starknet Mainnet chain identifiers and rejects every other network', () => {
@@ -43,6 +59,17 @@ test('builds the exact STRK20 shield deposit action', () => {
   assert.deepEqual(buildDepositAction('1'), {
     type: 'deposit', token: STARKNET_USDC, amount: '0xf4240',
   })
+})
+
+test('routes shield simulation through the typed wallet facade', async () => {
+  const calls: unknown[] = []
+  const wallet = {
+    strk20Balances: async () => [],
+    strk20PrepareInvoke: async (actions: unknown, simulate?: boolean) => { calls.push({ actions, simulate }); return {} as never },
+    strk20InvokeTransaction: async () => ({ transaction_hash: '0x1' }),
+  }
+  await simulateUsdcShield(wallet as never, '1')
+  assert.deepEqual(calls, [{ actions: [{ type: 'deposit', token: STARKNET_USDC, amount: '0xf4240' }], simulate: true }])
 })
 
 test('builds the exact STRK20 private payroll transfer action', () => {

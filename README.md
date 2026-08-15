@@ -2,18 +2,19 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-> **Release status:** public alpha preparation. The core application builds and is tested, but public deployment remains blocked on production persistence, operational controls, and a live multi-recipient Ready X certification. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** public alpha preparation. WalletAccountV6 discovery, typed STRK20 operations, and the shield simulation/approval screen are implemented and tested. Public deployment remains blocked on production persistence, operational controls, and live Ready X Mainnet certification. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
-1. Connect Ready X and sign a short-lived KudiRoll account challenge.
+1. Connect a Wallet Standard Starknet wallet and sign a short-lived KudiRoll account challenge. Ready X and Xverse expose the STRK20 privacy route; other compatible wallets can still access the saved workspace.
 2. Create separate teams for the groups the business pays.
 3. Save each worker's name, registered Starknet address, and default private-USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
 5. Save an immutable pay-run snapshot and review the combined total.
-6. Simulate every STRK20 private transfer together in Ready X.
-7. Type `PAY TEAM` and approve the atomic action list once.
-8. Review saved pay-run and settlement-provider records in History.
+6. Separately simulate and shield treasury USDC. The public approval and public pool deposit are shown as two explicit wallet prompts.
+7. Simulate every STRK20 private transfer together in the privacy wallet.
+8. Type `PAY TEAM` and approve the atomic action list once.
+9. Review saved pay-run and settlement-provider records in History.
 
 Every receiving address must first be registered with the compatible privacy wallet. A submitted pay run cannot be edited.
 

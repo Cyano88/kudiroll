@@ -1,13 +1,10 @@
 export const STARKNET_USDC = '0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb'
+import type { STRK20_ACTION, WalletAccountV6 } from 'starknet'
+
 export const STRK20_API_VERSION = '0.10.3'
 export const STARKNET_MAIN_CHAIN_ID = '0x534e5f4d41494e'
 
-export type WalletRequest = (request: { type: string; params?: unknown }) => Promise<unknown>
-
-export type Strk20Balance = {
-  token: string
-  balance: string
-}
+export type Strk20Wallet = Pick<WalletAccountV6, 'strk20Balances' | 'strk20PrepareInvoke' | 'strk20InvokeTransaction'>
 
 export function isStarknetMainnet(value: unknown) {
   if (typeof value === 'string' && value.trim().toUpperCase() === 'SN_MAIN') return true
@@ -29,6 +26,41 @@ export function isStarknetAddress(value: string) {
   return /^0x[0-9a-fA-F]{1,64}$/.test(value.trim())
 }
 
+export function normalizeStarknetAddress(value: string) {
+  const normalized = value.trim().toLowerCase()
+  if (!isStarknetAddress(normalized)) throw new Error('Enter a valid Starknet address.')
+  return normalized
+}
+
+export function supportsStrk20Api(versions: readonly string[], minimum = STRK20_API_VERSION) {
+  const parse = (value: string) => {
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:-|$)/.exec(value.trim())
+    return match ? match.slice(1).map(Number) : null
+  }
+  const required = parse(minimum)
+  if (!required) return false
+  return versions.some(version => {
+    const candidate = parse(version)
+    if (!candidate) return false
+    for (let index = 0; index < required.length; index += 1) {
+      if (candidate[index] !== required[index]) return candidate[index] > required[index]
+    }
+    return true
+  })
+}
+
+export async function withTimeout<T>(operation: Promise<T>, milliseconds: number, message = 'Wallet request timed out. Check the wallet and try again.') {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), milliseconds) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 export function toUsdcBaseUnits(value: string) {
   const normalized = value.trim()
   if (!/^\d+(?:\.\d{1,6})?$/.test(normalized)) throw new Error('Enter a positive USDC amount with at most 6 decimals.')
@@ -44,7 +76,7 @@ export function buildWithdrawAction(recipient: string, amountUsdc: string) {
     type: 'withdraw' as const,
     token: STARKNET_USDC,
     amount: toUsdcBaseUnits(amountUsdc),
-    recipient: recipient.trim(),
+    recipient: normalizeStarknetAddress(recipient),
   }
 }
 
@@ -62,68 +94,38 @@ export function buildPrivateTransferAction(recipient: string, amountUsdc: string
     type: 'transfer' as const,
     token: STARKNET_USDC,
     amount: toUsdcBaseUnits(amountUsdc),
-    recipient: recipient.trim(),
+    recipient: normalizeStarknetAddress(recipient),
   }
 }
 
 export type PrivatePayrollItem = { recipient: string; amountUsdc: string }
 
-export async function simulatePrivatePayroll(request: WalletRequest, items: PrivatePayrollItem[]) {
+export async function simulatePrivatePayroll(wallet: Strk20Wallet, items: PrivatePayrollItem[]) {
   if (!items.length) throw new Error('Select at least one payroll recipient.')
-  return request({
-    type: 'wallet_strk20PrepareInvoke',
-    params: { actions: items.map(item => buildPrivateTransferAction(item.recipient, item.amountUsdc)), simulate: true, api_version: STRK20_API_VERSION },
-  })
+  return wallet.strk20PrepareInvoke(items.map(item => buildPrivateTransferAction(item.recipient, item.amountUsdc)) as STRK20_ACTION[], true)
 }
 
-export async function submitPrivatePayroll(request: WalletRequest, items: PrivatePayrollItem[]) {
+export async function submitPrivatePayroll(wallet: Strk20Wallet, items: PrivatePayrollItem[]) {
   if (!items.length) throw new Error('Select at least one payroll recipient.')
-  return request({
-    type: 'wallet_strk20InvokeTransaction',
-    params: { actions: items.map(item => buildPrivateTransferAction(item.recipient, item.amountUsdc)), api_version: STRK20_API_VERSION },
-  })
+  return wallet.strk20InvokeTransaction(items.map(item => buildPrivateTransferAction(item.recipient, item.amountUsdc)) as STRK20_ACTION[])
 }
 
-export async function supportedWalletApi(request: WalletRequest) {
-  const result = await request({ type: 'wallet_supportedWalletApi' })
-  return Array.isArray(result) ? result.map(String) : []
+export async function readPrivateUsdcBalance(wallet: Strk20Wallet) {
+  return wallet.strk20Balances([STARKNET_USDC])
 }
 
-export async function readPrivateUsdcBalance(request: WalletRequest) {
-  const result = await request({
-    type: 'wallet_strk20Balances',
-    params: { tokens: [STARKNET_USDC], api_version: STRK20_API_VERSION },
-  })
-  return (Array.isArray(result) ? result : []) as Strk20Balance[]
+export async function simulateUsdcShield(wallet: Strk20Wallet, amountUsdc: string) {
+  return wallet.strk20PrepareInvoke([buildDepositAction(amountUsdc)] as STRK20_ACTION[], true)
 }
 
-export async function submitUsdcShield(request: WalletRequest, amountUsdc: string) {
-  return request({
-    type: 'wallet_strk20InvokeTransaction',
-    params: {
-      actions: [buildDepositAction(amountUsdc)],
-      api_version: STRK20_API_VERSION,
-    },
-  })
+export async function submitUsdcShield(wallet: Strk20Wallet, amountUsdc: string) {
+  return wallet.strk20InvokeTransaction([buildDepositAction(amountUsdc)] as STRK20_ACTION[])
 }
 
-export async function simulatePaycrestWithdraw(request: WalletRequest, recipient: string, amountUsdc: string) {
-  return request({
-    type: 'wallet_strk20PrepareInvoke',
-    params: {
-      actions: [buildWithdrawAction(recipient, amountUsdc)],
-      simulate: true,
-      api_version: STRK20_API_VERSION,
-    },
-  })
+export async function simulatePaycrestWithdraw(wallet: Strk20Wallet, recipient: string, amountUsdc: string) {
+  return wallet.strk20PrepareInvoke([buildWithdrawAction(recipient, amountUsdc)] as STRK20_ACTION[], true)
 }
 
-export async function submitPaycrestWithdraw(request: WalletRequest, recipient: string, amountUsdc: string) {
-  return request({
-    type: 'wallet_strk20InvokeTransaction',
-    params: {
-      actions: [buildWithdrawAction(recipient, amountUsdc)],
-      api_version: STRK20_API_VERSION,
-    },
-  })
+export async function submitPaycrestWithdraw(wallet: Strk20Wallet, recipient: string, amountUsdc: string) {
+  return wallet.strk20InvokeTransaction([buildWithdrawAction(recipient, amountUsdc)] as STRK20_ACTION[])
 }

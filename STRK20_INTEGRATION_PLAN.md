@@ -4,9 +4,9 @@ Generated 2026-08-15 by the `strk20-privacy-integration` skill. This is the exec
 
 ## 1. Project snapshot
 
-- Stack: React 18, Vite 8, TypeScript 5.8, Express 4, Node 20+, `starknet@10.4.0`, and the legacy `@starknet-io/get-starknet@4.0.8` connector.
-- Wallet connection: `src/App.tsx:220` calls `connect()` and creates the wallet-signed KudiRoll session.
-- STRK20 transaction layer: `src/phase0.ts:74-126` builds raw Wallet API requests for capability detection, balance reads, batch private transfers, and withdrawals.
+- Stack: React 18, Vite 8, TypeScript 5.8, Express 4, Node 20+, `starknet@10.7.0`, and get-starknet Wallet Standard discovery `6.0.4`.
+- Wallet connection: `src/App.tsx` discovers Wallet Standard providers, creates a typed `WalletAccountV6`, enforces Mainnet, and creates the wallet-signed KudiRoll session.
+- STRK20 transaction layer: `src/phase0.ts` exposes typed shield, balance, batch private-transfer, and withdrawal functions; UI code constructs no raw `wallet_strk20*` request.
 - Payroll UI: `src/App.tsx:767-800` simulates/submits an immutable multi-worker pay run; `src/App.tsx:876-877` requires the literal `PAY TEAM` confirmation.
 - Settlement UI: `src/App.tsx:369-438` creates, simulates, and submits the Paycrest withdrawal pilot.
 - Backend: `src/server/account-router.ts` handles wallet-signed sessions; `src/server/account-store.ts` stores business, team, and pay-run data in a local JSON file; `src/server/phase0-router.ts` and `src/server/paycrest.ts` isolate the Paycrest API behind the server.
@@ -55,7 +55,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 6. Prerequisites and versions
 
-- Keep `starknet@10.4.0` during the migration; it contains `WalletAccountV6` and avoids unrelated upgrade risk.
+- Use exact `starknet@10.7.0`; the Phase 1 typecheck proved that 10.4.0's bundled Wallet Standard 6.0.2 types are incompatible with current discovery 6.0.4.
 - Replace `@starknet-io/get-starknet@4.0.8` with exact pins `@starknet-io/get-starknet-discovery@6.0.4` and `@starknet-io/get-starknet-wallet-standard@6.0.4`.
 - Add exact pin `@starknet-io/types-js@0.10.3`, matching the latest stable Privacy Wallet API.
 - Treat Wallet API `0.10.4-rc.1` and types-js beta releases as unsupported until stable and explicitly re-certified.
@@ -78,7 +78,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 8. Phase 1 — WalletAccountV6 foundation and first shield flow
 
-**Status:** planned.
+**Status:** implementation complete 2026-08-15; manual Ready/Mainnet checkpoint pending. Local typecheck, 19/19 tests, production build, zero-vulnerability audit, desktop render, mobile render, and signed-out wallet fallback checks passed. No Mainnet transaction was submitted.
 
 1. Update `package.json` and lockfile to the exact packages in Section 6.
 2. Replace the connector use in `src/App.tsx:2` and `src/App.tsx:220-258` with get-starknet v6 discovery and a typed `WalletAccountV6` adapter.
@@ -203,9 +203,9 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 ## 17. Open items and drift to re-verify
 
 - get-starknet `next` moved from 6.0.3 to 6.0.4 on 2026-08-15; confirm the current WalletAccount guide and Ready behavior before installation.
-- `starknet` `next` is 10.7.0, but KudiRoll will remain on the known STRK20-capable 10.4.0 until a later release provides a required fix.
+- `starknet@10.7.0` is now pinned because it aligns its bundled Wallet Standard v6 types with discovery 6.0.4; re-check before later upgrades.
 - Wallet API stable is 0.10.3; 0.10.4 remains prerelease and is out of scope.
-- Xverse dapp-facing STRK20 capability must be re-checked; Ready remains the certification target until verified.
+- The current WalletAccount guide names Ready and Xverse as STRK20-capable; Ready remains the first hands-on certification target until both are manually verified.
 - Read the pool fee at build/run time; never promise a historical fee.
 - Confirm the canonical pool address through more than one official source before recording evidence because the configured Voyager page was unreachable during freshness checking.
 - Confirm Paycrest Starknet aggregator support and the full live lifecycle before enabling orders; documentation and API behavior may differ during rollout.

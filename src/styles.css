@@ -105,6 +105,9 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .signInPrimary { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 54px; margin-top: 28px; border-radius: 8px; padding: 8px 9px 8px 17px; color: #fff; background: #22301f; box-shadow: 0 8px 22px #1b28192b; font-size: .76rem; }
 .signInPrimary i { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 6px; color: #243120; background: #dfe9d6; font-size: 1rem; font-style: normal; }
 .signInPrimary:hover { background: #182516; }
+.walletChoices { display: grid; gap: 9px; margin-top: 28px; }
+.walletChoices .signInPrimary { margin-top: 0; }
+.walletInstall { display: grid; place-items: center; min-height: 54px; margin-top: 28px; border-radius: 8px; color: #fff; background: #22301f; font-size: .76rem; font-weight: 800; text-decoration: none; }
 .signInHint { margin: 9px 0 0; color: #7c8378; font-size: .64rem; text-align: center; }
 .signInRule { height: 1px; margin: 23px 0 17px; background: #d9ddd5; }
 .signInConsent { margin: 0; color: #747b70; font-size: .62rem; line-height: 1.55; text-align: center; }
@@ -170,6 +173,19 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .metricCard > small { display: block; min-height: 32px; color: #92938a; font-size: .65rem; line-height: 1.4; }
 .metricCard > button { margin-top: 12px; padding: 0; color: #667039; background: transparent; font-size: .66rem; }
 .panel { padding: 20px; }
+.shieldPanel { display: grid; gap: 16px; }
+.shieldDisclosure { margin: 0; border-left: 3px solid #a06e39; padding: 10px 12px; color: #705b43; background: #f8f1e7; font-size: .7rem; line-height: 1.55; }
+.shieldSteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.shieldSteps > div { display: flex; align-items: center; gap: 9px; border: 1px solid #e0e4de; border-radius: 8px; padding: 11px; background: #f7f9f6; }
+.shieldSteps strong { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; background: #405b39; font-size: .64rem; }
+.shieldSteps span { color: #697168; font-size: .65rem; font-weight: 700; }
+.shieldControls, .shieldApproval { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 10px; }
+.shieldControls label { position: relative; }
+.shieldControls label small { position: absolute; right: 12px; bottom: 13px; color: #888f87; font-size: .6rem; }
+.shieldControls button, .shieldApproval button { min-height: 43px; }
+.shieldPanel .simulation { margin-top: 0; }
+.shieldPanel .simulation a { width: max-content; color: inherit; font-size: .68rem; font-weight: 800; }
+.shieldApproval { border-top: 1px solid #e1e5df; padding-top: 14px; }
 .panelTitle { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
 .panelTitle span, .composerHead span { color: #98998f; font-size: .65rem; }
 .panelTitle h3, .labCallout h3 { margin: 3px 0 0; font-size: 1rem; letter-spacing: -.035em; }
@@ -368,6 +384,7 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
   .welcomeStrip h2 { font-size: 2rem; }
   .welcomeStrip button { width: max-content; }
   .metricGrid, .dashboardAside, .providerGrid, .twoFieldGrid { grid-template-columns: 1fr; }
+  .shieldSteps, .shieldControls, .shieldApproval { grid-template-columns: 1fr; }
   .workerForm { grid-template-columns: 1fr; }
   .pilotReadiness { grid-template-columns: 1fr; }
   .historyRow, .historyRow.compact { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
@@ -439,6 +456,7 @@ html[data-theme='dark'] .signInHint,
 html[data-theme='dark'] .signInConsent { color: #929d94; }
 html[data-theme='dark'] .signInPrimary { color: #07110a; background: #48d99c; box-shadow: 0 8px 24px #0006; }
 html[data-theme='dark'] .signInPrimary:hover { background: #61e4ad; }
+html[data-theme='dark'] .walletInstall { color: #07110a; background: #48d99c; }
 html[data-theme='dark'] .signInPrimary i { color: #dff8e9; background: #173d28; }
 html[data-theme='dark'] .signInRule { background: #2b332d; }
 html[data-theme='dark'] .signInConsent button { color: #b8d9c5; background: transparent; }
@@ -486,6 +504,10 @@ html[data-theme='dark'] .metricCard > button,
 html[data-theme='dark'] .plainButton { color: #79c99a; }
 html[data-theme='dark'] .panelTitle span,
 html[data-theme='dark'] .composerHead span { color: #7d8880; }
+html[data-theme='dark'] .shieldDisclosure { color: #d2b98f; background: #2a2117; }
+html[data-theme='dark'] .shieldSteps > div { border-color: #29312b; background: #171d18; }
+html[data-theme='dark'] .shieldSteps span { color: #9ba59d; }
+html[data-theme='dark'] .shieldApproval { border-color: #29312b; }
 
 html[data-theme='dark'] .emptyState { background: #171d18; box-shadow: inset 0 1px #29312b, inset 0 -1px #29312b; }
 html[data-theme='dark'] .routeIcon,
