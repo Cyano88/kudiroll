@@ -1,0 +1,990 @@
+import { useEffect, useState } from 'react'
+import { connect, disconnect } from '@starknet-io/get-starknet'
+import {
+  STRK20_API_VERSION,
+  isStarknetAddress,
+  requireStarknetMainnet,
+  readPrivateUsdcBalance,
+  simulatePrivatePayroll,
+  simulatePaycrestWithdraw,
+  submitPrivatePayroll,
+  submitPaycrestWithdraw,
+  supportedWalletApi,
+  type WalletRequest,
+} from './phase0'
+
+type Check = { ok: boolean; detail: string }
+type PublicProbe = {
+  ok: boolean
+  checkedAt: string
+  token: { symbol: string; network: string; contractAddress: string; decimals: number } | null
+  quote: { rate: string; orderType?: string; refundTimeoutMinutes?: number } | null
+  checks: Record<string, Check>
+  stale?: boolean
+  warning?: string
+}
+type Institution = { code: string; name: string; type?: string }
+type VerifiedAccount = { accountName: string; fingerprint: string }
+type Phase0Order = {
+  id: string
+  status: string
+  reference: string
+  amountNgn: string
+  amountUsdc: string
+  receiveAddress: string
+  validUntil: string
+  accountName: string
+  bankLast4: string
+}
+type PaycrestOrderSummary = {
+  id: string
+  status: string
+  reference: string
+  amountNgn: string
+  amountUsdc: string
+  network: string
+  token: string
+  accountName: string
+  bankLast4: string
+  createdAt: string
+  updatedAt: string
+  txHash: string
+}
+type ConnectedWallet = {
+  id?: string
+  name?: string
+  selectedAddress?: string
+  chainId?: string | number | bigint
+  account?: { address?: string; signMessage?: (typedData: unknown) => Promise<unknown> }
+  request: WalletRequest
+}
+type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
+type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
+type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
+type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; createdAt: string; updatedAt: string }
+type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; createdAt: string; updatedAt: string }
+type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
+type Theme = 'light' | 'dark'
+
+function readableError(reason: unknown) {
+  if (reason instanceof Error) return reason.message
+  if (reason && typeof reason === 'object' && 'message' in reason) return String(reason.message)
+  return String(reason || 'Unknown error')
+}
+
+function privateBalanceError(reason: unknown) {
+  const message = readableError(reason)
+  if (/NOT_REGISTERED/i.test(message)) return 'Your private balance is not ready yet. Open Ready X, shield USDC, then check again.'
+  if (/USER_REFUSED_OP/i.test(message)) return 'Request cancelled in Ready.'
+  if (/API_VERSION_NOT_SUPPORTED/i.test(message)) return 'Ready does not support the requested STRK20 API version.'
+  return `Could not read private USDC: ${message}`
+}
+
+function transactionLabel(result: unknown) {
+  if (!result || typeof result !== 'object') return 'Wallet accepted the private withdrawal request.'
+  const record = result as Record<string, unknown>
+  const value = record.transaction_hash ?? record.transactionHash ?? record.tx_hash ?? record.txHash
+  return value ? `Wallet submitted transaction ${String(value)}` : 'Wallet accepted the private withdrawal request.'
+}
+
+export function App() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const saved = window.localStorage.getItem('kudiroll-theme')
+      if (saved === 'light' || saved === 'dark') return saved
+    } catch {}
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+  const [section, setSection] = useState<ProductSection>(() => {
+    if (!['127.0.0.1', 'localhost'].includes(window.location.hostname)) return 'overview'
+    const requested = new URLSearchParams(window.location.search).get('section') as ProductSection | null
+    return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab'].includes(requested) ? requested : 'overview'
+  })
+  const [enteredApp, setEnteredApp] = useState(() => ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section')))
+  const [legalView, setLegalView] = useState<'terms' | 'privacy' | null>(null)
+  const [publicProbe, setPublicProbe] = useState<PublicProbe | null>(null)
+  const [probeError, setProbeError] = useState('')
+  const [wallet, setWallet] = useState<ConnectedWallet | null>(null)
+  const [accountData, setAccountData] = useState<AccountData | null>(null)
+  const [walletVersions, setWalletVersions] = useState<string[]>([])
+  const [privateBalance, setPrivateBalance] = useState('Not checked')
+  const [privateBalanceUsdc, setPrivateBalanceUsdc] = useState<number | null>(null)
+  const [institutions, setInstitutions] = useState<Institution[]>([])
+  const [institutionError, setInstitutionError] = useState('')
+  const [bankCode, setBankCode] = useState('')
+  const [accountIdentifier, setAccountIdentifier] = useState('')
+  const [verifiedAccount, setVerifiedAccount] = useState<VerifiedAccount | null>(null)
+  const [amountNgn, setAmountNgn] = useState('1000')
+  const [orderConfirmation, setOrderConfirmation] = useState('')
+  const [order, setOrder] = useState<Phase0Order | null>(null)
+  const [orderError, setOrderError] = useState('')
+  const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>([])
+  const [orderHistoryError, setOrderHistoryError] = useState('')
+  const [liveOrdersEnabled, setLiveOrdersEnabled] = useState(false)
+  const [simulationState, setSimulationState] = useState<'idle' | 'passed' | 'failed' | 'submitted'>('idle')
+  const [simulationMessage, setSimulationMessage] = useState('Create a verified Paycrest order to begin.')
+  const [liveConfirmation, setLiveConfirmation] = useState('')
+  const [busy, setBusy] = useState('')
+  const [now, setNow] = useState(Date.now())
+
+  const walletAddress = wallet?.account?.address || wallet?.selectedAddress || ''
+  const accountFingerprint = `${bankCode}:${accountIdentifier}`
+  const accountIsVerified = verifiedAccount?.fingerprint === accountFingerprint
+  const orderExpired = order ? Date.parse(order.validUntil) <= now : true
+  const exactAmountCovered = order && privateBalanceUsdc !== null ? Number(order.amountUsdc) <= privateBalanceUsdc : false
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    try { window.localStorage.setItem('kudiroll-theme', theme) } catch {}
+  }, [theme])
+
+  useEffect(() => {
+    if (section === 'lab') {
+      void loadInstitutions()
+      void localJson('/api/phase0/health').then(data => setLiveOrdersEnabled(Boolean(data.liveOrdersEnabled))).catch(() => setLiveOrdersEnabled(false))
+    }
+    if (enteredApp && (section === 'overview' || section === 'activity' || section === 'lab')) void loadPaycrestOrders()
+  }, [section, enteredApp])
+
+  async function localJson(path: string, init: RequestInit = {}, attempts = 2) {
+    let lastError: unknown
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 12_000)
+      try {
+        const response = await fetch(path, {
+          ...init,
+          cache: 'no-store',
+          headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
+          signal: controller.signal,
+        })
+        const data = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(data?.error || `Local API returned HTTP ${response.status}.`)
+        return data
+      } catch (error) {
+        lastError = error
+        if (attempt < attempts && (!init.method || init.method === 'GET')) await new Promise(resolve => window.setTimeout(resolve, 450))
+        else break
+      } finally {
+        window.clearTimeout(timeout)
+      }
+    }
+    throw new Error(`Could not complete the KudiRoll request. ${readableError(lastError)}`)
+  }
+
+  async function loadInstitutions() {
+    setInstitutionError('')
+    try {
+      const data = await localJson('/api/phase0/paycrest/institutions')
+      setInstitutions(Array.isArray(data.institutions) ? data.institutions : [])
+    } catch (error) {
+      setInstitutionError(readableError(error))
+    }
+  }
+
+  async function loadPaycrestOrders() {
+    setOrderHistoryError('')
+    try {
+      const data = await localJson('/api/phase0/paycrest/orders')
+      setPaycrestOrders(Array.isArray(data.orders) ? data.orders : [])
+    } catch (error) {
+      setOrderHistoryError(readableError(error))
+    }
+  }
+
+  async function probePaycrest() {
+    setBusy('paycrest')
+    setProbeError('')
+    try {
+      await localJson('/api/phase0/health')
+      const data = await localJson('/api/phase0/paycrest/public') as PublicProbe
+      setPublicProbe(data)
+    } catch (error) {
+      setPublicProbe(null)
+      setProbeError(readableError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function connectWallet(): Promise<ConnectedWallet | null> {
+    setBusy('wallet')
+    try {
+      const connected = await connect()
+      if (!connected) throw new Error('No Starknet wallet was selected.')
+      const next = connected as unknown as ConnectedWallet
+      requireStarknetMainnet(next.chainId)
+      let versions: string[] = []
+      try {
+        versions = await supportedWalletApi(next.request.bind(next))
+      } catch {
+        // Standard Starknet wallets can still authenticate and manage account data.
+        // Private payroll remains gated on an advertised STRK20 capability.
+      }
+      setWallet(next)
+      setWalletVersions(versions)
+      return next
+    } catch (error) {
+      alert(readableError(error))
+      return null
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function signIn() {
+    const connected = await connectWallet()
+    if (!connected) return
+    const address = connected.account?.address || connected.selectedAddress || ''
+    try {
+      setBusy('account')
+      const challenge = await accountJson('/api/account/challenge', { method: 'POST', body: JSON.stringify({ address }) })
+      const rawSignature = connected.account?.signMessage
+        ? await connected.account.signMessage(challenge.challenge.typedData)
+        : await connected.request({ type: 'wallet_signTypedData', params: challenge.challenge.typedData })
+      const signature = Array.isArray(rawSignature)
+        ? rawSignature.map(String)
+        : rawSignature && typeof rawSignature === 'object' && 'r' in rawSignature && 's' in rawSignature
+          ? [String(rawSignature.r), String(rawSignature.s)]
+          : []
+      const session = await accountJson('/api/account/session', { method: 'POST', body: JSON.stringify({ address, nonce: challenge.challenge.nonce, signature }) })
+      setAccountData(session.account)
+      setEnteredApp(true)
+    } catch (error) {
+      alert(`Could not open your KudiRoll account. ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function accountJson(path: string, init: RequestInit = {}) {
+    const response = await fetch(path, {
+      ...init,
+      credentials: 'include',
+      headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(data?.error || `Account request returned HTTP ${response.status}.`)
+    return data
+  }
+
+  async function refreshAccount() {
+    const data = await accountJson('/api/account/me')
+    setAccountData(data.account)
+  }
+
+  async function mutateAccount(path: string, init: RequestInit) {
+    const result = await accountJson(path, init)
+    await refreshAccount()
+    return result
+  }
+
+  async function leaveWallet() {
+    await accountJson('/api/account/session', { method: 'DELETE' }).catch(() => undefined)
+    await disconnect({ clearLastWallet: true }).catch(() => undefined)
+    setWallet(null)
+    setWalletVersions([])
+    setPrivateBalance('Not checked')
+    setPrivateBalanceUsdc(null)
+    setAccountData(null)
+    resetOrder()
+    setEnteredApp(false)
+  }
+
+  async function deleteKudiRollAccount(confirmation: string) {
+    const result = await accountJson('/api/account', { method: 'DELETE', body: JSON.stringify({ confirmation }) })
+    await leaveWallet()
+    return result
+  }
+
+  async function checkBalance() {
+    if (!wallet) return
+    if (!walletVersions.includes(STRK20_API_VERSION)) {
+      setPrivateBalanceUsdc(null)
+      setPrivateBalance('This wallet does not advertise the Ready STRK20 private-payroll API.')
+      return
+    }
+    setBusy('balance')
+    try {
+      const balances = await readPrivateUsdcBalance(wallet.request.bind(wallet))
+      const units = BigInt(balances[0]?.balance || '0x0')
+      const value = Number(units) / 1_000_000
+      setPrivateBalanceUsdc(value)
+      setPrivateBalance(`${value} USDC`)
+    } catch (error) {
+      setPrivateBalanceUsdc(null)
+      setPrivateBalance(privateBalanceError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  function resetOrder() {
+    setOrder(null)
+    setOrderConfirmation('')
+    setOrderError('')
+    setSimulationState('idle')
+    setSimulationMessage('Create a verified Paycrest order to begin.')
+    setLiveConfirmation('')
+  }
+
+  function changeBank(value: string) {
+    setBankCode(value)
+    setVerifiedAccount(null)
+    resetOrder()
+  }
+
+  function changeAccount(value: string) {
+    setAccountIdentifier(value.replace(/\D/g, '').slice(0, 10))
+    setVerifiedAccount(null)
+    resetOrder()
+  }
+
+  async function verifyAccount() {
+    setBusy('verify-account')
+    setOrderError('')
+    try {
+      const fingerprint = accountFingerprint
+      const data = await localJson('/api/phase0/paycrest/verify-account', {
+        method: 'POST',
+        body: JSON.stringify({ institution: bankCode, accountIdentifier }),
+      }, 1)
+      setVerifiedAccount({ accountName: String(data.account.accountName), fingerprint })
+    } catch (error) {
+      setVerifiedAccount(null)
+      setOrderError(readableError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function createOrder() {
+    if (!liveOrdersEnabled) return setOrderError('Live Paycrest order creation is locked while the Starknet settlement route is uncertified.')
+    if (!wallet || !walletAddress || !accountIsVerified || privateBalanceUsdc === null) return
+    setBusy('create-order')
+    setOrderError('')
+    try {
+      let probe = publicProbe
+      if (!probe?.quote?.rate) {
+        probe = await localJson('/api/phase0/paycrest/public') as PublicProbe
+        setPublicProbe(probe)
+      }
+      const estimatedUsdc = Number(amountNgn) / Number(probe.quote?.rate || 0)
+      if (!Number.isFinite(estimatedUsdc) || estimatedUsdc * 1.1 > privateBalanceUsdc) {
+        throw new Error('This payout may exceed your private USDC after fees. Reduce the Naira amount or shield more USDC.')
+      }
+      const data = await localJson('/api/phase0/paycrest/order', {
+        method: 'POST',
+        body: JSON.stringify({
+          amountNgn,
+          institution: bankCode,
+          accountIdentifier,
+          refundAddress: walletAddress,
+          memo: 'KudiRoll Phase 0 payout',
+          confirmation: orderConfirmation,
+        }),
+      }, 1)
+      const next = data.order as Phase0Order
+      setOrder(next)
+      void loadPaycrestOrders()
+      setNow(Date.now())
+      setSimulationState('idle')
+      setSimulationMessage('Order created. Simulate its exact private withdrawal before paying.')
+      setLiveConfirmation('')
+      if (Number(next.amountUsdc) > privateBalanceUsdc) {
+        setOrderError('Paycrest created the order, but its exact USDC total exceeds your current private balance. Do not pay this order.')
+      }
+    } catch (error) {
+      setOrderError(readableError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function simulate() {
+    if (!wallet || !order) return
+    setBusy('simulate')
+    setSimulationState('idle')
+    try {
+      if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order has expired. Create a fresh order.')
+      if (!exactAmountCovered) throw new Error('The exact order amount exceeds the last checked private USDC balance.')
+      await simulatePaycrestWithdraw(wallet.request.bind(wallet), order.receiveAddress, order.amountUsdc)
+      setSimulationState('passed')
+      setSimulationMessage('Ready accepted the simulation. Review the exact order below, then unlock wallet approval.')
+    } catch (error) {
+      setSimulationState('failed')
+      setSimulationMessage(`Simulation rejected: ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function submit() {
+    if (!wallet || !order || simulationState !== 'passed' || liveConfirmation !== 'WITHDRAW') return
+    setBusy('submit')
+    try {
+      if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order expired before approval. Do not send to it.')
+      const result = await submitPaycrestWithdraw(wallet.request.bind(wallet), order.receiveAddress, order.amountUsdc)
+      setSimulationState('submitted')
+      setSimulationMessage(transactionLabel(result))
+      setLiveConfirmation('')
+      void loadPaycrestOrders()
+    } catch (error) {
+      setSimulationMessage(`Not submitted: ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  if (!enteredApp) {
+    return <SignInLanding
+      theme={theme}
+      busy={busy === 'wallet' || busy === 'account'}
+      legalView={legalView}
+      onSignIn={signIn}
+      onOpenLegal={setLegalView}
+      onCloseLegal={() => setLegalView(null)}
+      onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
+    />
+  }
+
+  const paycrestPilot = <div className="sectionStack paycrestPilot">
+    <section className="panel sectionIntro">
+      <div><span className="panelKicker">Guided payout test</span><h2>Test a Nigerian bank payout</h2><p>Use a small test to verify the recipient, lock a live quote, and review the exact private USDC payment before Ready asks for approval.</p></div>
+      <span className={`statePill ${liveOrdersEnabled ? 'safe' : 'neutral'}`}>{liveOrdersEnabled ? 'Test enabled' : 'Read-only demo'}</span>
+    </section>
+
+    <section className="pilotReadiness">
+      <article><span>Paycrest quote</span><strong>{publicProbe?.quote ? `₦${publicProbe.quote.rate} / USDC` : 'Not checked'}</strong><button className="plainButton" onClick={probePaycrest} disabled={Boolean(busy)}>{busy === 'paycrest' ? 'Checking…' : 'Refresh quote'}</button></article>
+      <article><span>Private balance</span><strong>{privateBalanceUsdc === null ? 'Not checked' : `${privateBalanceUsdc} USDC`}</strong><button className="plainButton" onClick={checkBalance} disabled={Boolean(busy)}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button></article>
+      <article><span>Settlement route</span><strong>Starknet → NGN</strong><small>Guided Paycrest test</small></article>
+    </section>
+    {(probeError || publicProbe?.warning) && <div className="inlineError">{probeError || publicProbe?.warning}</div>}
+
+    <section className="panel payoutComposer">
+      <div className="flowSteps"><span className={accountIsVerified ? 'done' : 'active'}>1 Recipient</span><span className={order ? 'done' : accountIsVerified ? 'active' : ''}>2 Order</span><span className={simulationState === 'passed' || simulationState === 'submitted' ? 'done' : order ? 'active' : ''}>3 Wallet check</span><span className={simulationState === 'submitted' ? 'done' : simulationState === 'passed' ? 'active' : ''}>4 Approve</span></div>
+      {!liveOrdersEnabled && <div className="routeNotice"><strong>Read-only demo</strong><span>The existing Paycrest order history remains live. Creating another order is disabled until Starknet deposits are detected reliably.</span></div>}
+      <div className="formGrid">
+        <label>Bank<select value={bankCode} onChange={event => changeBank(event.target.value)} disabled={Boolean(busy) || Boolean(order)}><option value="">{institutionError ? 'Banks unavailable' : institutions.length ? 'Select bank' : 'Loading banks…'}</option>{institutions.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
+        <label>Account number<input value={accountIdentifier} onChange={event => changeAccount(event.target.value)} inputMode="numeric" autoComplete="off" placeholder="10 digits" disabled={Boolean(busy) || Boolean(order)} /></label>
+        <div className="fieldAction"><button className="secondary" onClick={verifyAccount} disabled={Boolean(busy) || !bankCode || accountIdentifier.length !== 10 || Boolean(order)}>{busy === 'verify-account' ? 'Verifying…' : accountIsVerified ? 'Verified' : 'Verify account'}</button></div>
+      </div>
+      {institutionError && <div className="inlineError">{institutionError} <button className="textButton" onClick={loadInstitutions}>Retry</button></div>}
+      {accountIsVerified && <div className="verifiedBox"><span>Verified recipient</span><strong>{verifiedAccount.accountName}</strong><small>{institutions.find(item => item.code === bankCode)?.name} · account ending {accountIdentifier.slice(-4)}</small></div>}
+      <div className="orderGate">
+        <label>Amount to receive<input value={amountNgn} onChange={event => { setAmountNgn(event.target.value.replace(/[^\d.]/g, '')); resetOrder() }} inputMode="decimal" disabled={Boolean(order)} /><small>NGN</small></label>
+        <label>Confirmation<input value={orderConfirmation} onChange={event => setOrderConfirmation(event.target.value)} autoComplete="off" placeholder="CREATE TEST ORDER" disabled={Boolean(order)} /></label>
+        <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || orderConfirmation !== 'CREATE TEST ORDER' || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Create test order' : 'Order creation paused'}</button>
+      </div>
+      {orderError && <div className="errorBox"><strong>Could not continue</strong><span>{orderError}</span></div>}
+      {order && <div className="orderReceipt"><div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={orderExpired ? 'expired' : ''}>{orderExpired ? 'Expired' : order.status}</em></div><div className="receiptGrid"><div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div><div><span>Recipient receives</span><strong>₦{order.amountNgn}</strong></div><div><span>You send</span><strong>{order.amountUsdc} USDC</strong></div><div><span>Pay before</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div></div><div className="actions"><button onClick={simulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered || simulationState === 'submitted'}>{busy === 'simulate' ? 'Waiting for Ready…' : simulationState === 'passed' ? 'Check again' : 'Check payment in Ready'}</button>{simulationState !== 'submitted' && <button className="ghost" onClick={resetOrder} disabled={Boolean(busy)}>Discard order</button>}</div></div>}
+      {order && <div className={`simulation ${simulationState}`}><strong>{simulationState === 'passed' ? 'Ready check passed' : simulationState === 'submitted' ? 'Wallet submitted payment' : 'Wallet check'}</strong><span>{simulationMessage}</span></div>}
+      {simulationState === 'passed' && order && <details><summary>Review and approve payment</summary><div className="danger"><strong>This requests a real {order.amountUsdc} USDC private withdrawal.</strong><p>Type WITHDRAW, then approve inside Ready X.</p><input value={liveConfirmation} onChange={event => setLiveConfirmation(event.target.value)} autoComplete="off" placeholder="WITHDRAW" /><button className="dangerButton" onClick={submit} disabled={liveConfirmation !== 'WITHDRAW' || Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for Ready…' : 'Pay with Ready X'}</button></div></details>}
+    </section>
+  </div>
+
+  return <ProductShell
+    theme={theme}
+    section={section}
+    onSection={setSection}
+    wallet={wallet}
+    walletAddress={walletAddress}
+    walletVersions={walletVersions}
+    privateBalance={privateBalance}
+    privateBalanceUsdc={privateBalanceUsdc}
+    busy={busy}
+    paycrestOrders={paycrestOrders}
+    orderHistoryError={orderHistoryError}
+    paycrestPilot={paycrestPilot}
+    accountData={accountData}
+    onMutateAccount={mutateAccount}
+    onRefreshOrders={loadPaycrestOrders}
+    onConnect={connectWallet}
+    onReadBalance={checkBalance}
+    onDisconnect={leaveWallet}
+    onDeleteAccount={deleteKudiRollAccount}
+    onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
+  />
+}
+
+function SignInLanding({
+  theme,
+  busy,
+  legalView,
+  onSignIn,
+  onOpenLegal,
+  onCloseLegal,
+  onToggleTheme,
+}: {
+  theme: Theme
+  busy: boolean
+  legalView: 'terms' | 'privacy' | null
+  onSignIn: () => void
+  onOpenLegal: (view: 'terms' | 'privacy') => void
+  onCloseLegal: () => void
+  onToggleTheme: () => void
+}) {
+  const legalContent = legalView === 'terms'
+    ? {
+        title: 'Terms of use',
+        body: 'Use KudiRoll only for payouts you are authorized to manage. You remain responsible for reviewing recipients, amounts, and wallet approvals. KudiRoll does not custody funds, and blockchain transactions cannot normally be reversed.',
+      }
+    : {
+        title: 'Privacy',
+        body: 'KudiRoll saves team names, worker names, Starknet addresses, default amounts, and pay-run records to your wallet-secured account. KudiRoll never asks for or stores wallet private keys, viewing keys, proofs, OTPs, recovery phrases, or bank details.',
+      }
+
+  return <div className="signInGate">
+    <div className="signInBackdrop" aria-hidden="true" />
+    <ThemeToggle theme={theme} onToggle={onToggleTheme} className="signInThemeToggle" />
+    <main className="signInMain">
+      <section className="signInStory" aria-label="KudiRoll private payroll">
+        <div className="signInBrand"><img src="/kudiroll-mark.svg" alt="" /><strong>KudiRoll</strong></div>
+        <div className="signInStoryCopy">
+          <span>Private payroll for modern teams</span>
+          <h2>Pay your people.<br />Keep payroll private.</h2>
+          <p>Prepare team payments, review every amount, and use private USDC from one secure Starknet workspace.</p>
+        </div>
+        <div className="signInTrust">Non-custodial wallet access</div>
+      </section>
+
+      <section className="signInCard" aria-labelledby="sign-in-title">
+        <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
+        <h1 id="sign-in-title">Sign in to continue</h1>
+        <p className="signInBody">Connect the wallet you use for private payroll.</p>
+
+        <button className="signInPrimary" onClick={onSignIn} disabled={busy}>
+          <span>{busy ? 'Opening wallet...' : 'Continue with wallet'}</span>
+          <i aria-hidden="true">→</i>
+        </button>
+        <p className="signInHint">Ready X or a compatible Starknet wallet</p>
+
+        <div className="signInRule" />
+        <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
+        <div className="signInPowered"><span>Powered by</span><strong>Starknet</strong></div>
+      </section>
+    </main>
+
+    {legalView && <div className="legalOverlay" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onCloseLegal() }}>
+      <section className="legalDialog" role="dialog" aria-modal="true" aria-labelledby="legal-title">
+        <div><span>KudiRoll</span><h2 id="legal-title">{legalContent.title}</h2></div>
+        <p>{legalContent.body}</p>
+        <button onClick={onCloseLegal}>Close</button>
+      </section>
+    </div>}
+  </div>
+}
+
+function ProductShell({
+  theme,
+  section,
+  onSection,
+  wallet,
+  walletAddress,
+  walletVersions,
+  privateBalance,
+  privateBalanceUsdc,
+  busy,
+  paycrestOrders,
+  orderHistoryError,
+  paycrestPilot,
+  accountData,
+  onMutateAccount,
+  onRefreshOrders,
+  onConnect,
+  onReadBalance,
+  onDisconnect,
+  onDeleteAccount,
+  onToggleTheme,
+}: {
+  theme: Theme
+  section: ProductSection
+  onSection: (section: ProductSection) => void
+  wallet: ConnectedWallet | null
+  walletAddress: string
+  walletVersions: string[]
+  privateBalance: string
+  privateBalanceUsdc: number | null
+  busy: string
+  paycrestOrders: PaycrestOrderSummary[]
+  orderHistoryError: string
+  paycrestPilot: React.ReactNode
+  accountData: AccountData | null
+  onMutateAccount: (path: string, init: RequestInit) => Promise<any>
+  onRefreshOrders: () => void
+  onConnect: () => void
+  onReadBalance: () => void
+  onDisconnect: () => void
+  onDeleteAccount: (confirmation: string) => Promise<any>
+  onToggleTheme: () => void
+}) {
+  const [teamName, setTeamName] = useState('')
+  const [teamDescription, setTeamDescription] = useState('')
+  const [selectedTeamId, setSelectedTeamId] = useState('')
+  const [workerName, setWorkerName] = useState('')
+  const [workerAddress, setWorkerAddress] = useState('')
+  const [workerAmount, setWorkerAmount] = useState('')
+  const [workerError, setWorkerError] = useState('')
+  const [draftNotice, setDraftNotice] = useState('')
+  const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({})
+  const [selectedWorkers, setSelectedWorkers] = useState<Record<string, boolean>>({})
+  const [accountAction, setAccountAction] = useState('')
+  const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
+  const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
+  const [batchMessage, setBatchMessage] = useState('')
+  const [batchConfirmation, setBatchConfirmation] = useState('')
+  const [profileForm, setProfileForm] = useState({ ownerName: '', businessName: '', jobTitle: '', email: '', phone: '' })
+  const [profileNotice, setProfileNotice] = useState('')
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
+
+  const nav: Array<{ id: ProductSection; label: string; icon: IconName }> = [
+    { id: 'overview', label: 'Home', icon: 'home' },
+    { id: 'workers', label: 'Team', icon: 'people' },
+    { id: 'payroll', label: 'Pay run', icon: 'wallet' },
+    { id: 'activity', label: 'History', icon: 'activity' },
+    { id: 'providers', label: 'Payout methods', icon: 'route' },
+  ]
+  const teams = accountData?.teams ?? []
+  const profileComplete = Boolean(accountData?.profile.ownerName && accountData?.profile.businessName)
+  const setupStepsComplete = Number(profileComplete) + Number(Boolean(teams.length)) + Number(teams.some(team => team.workers.length))
+  const selectedTeam = teams.find(team => team.id === selectedTeamId) ?? teams[0] ?? null
+  const selectedItems = selectedTeam?.workers.filter(worker => selectedWorkers[worker.id] !== false) ?? []
+  const totalDraft = selectedItems.reduce((sum, worker) => sum + Number(draftAmounts[worker.id] || worker.defaultAmountUsdc || 0), 0)
+  const supportsPrivatePayroll = walletVersions.includes(STRK20_API_VERSION)
+  const pageTitle: Record<ProductSection, string> = {
+    overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
+    providers: 'Payout methods', settings: 'Business profile', lab: 'Guided payout test',
+  }
+
+  useEffect(() => {
+    if (teams.length && !teams.some(team => team.id === selectedTeamId)) setSelectedTeamId(teams[0].id)
+  }, [teams, selectedTeamId])
+
+  useEffect(() => {
+    const profile = accountData?.profile
+    setProfileForm({
+      ownerName: profile?.ownerName ?? '',
+      businessName: profile?.businessName ?? '',
+      jobTitle: profile?.jobTitle ?? '',
+      email: profile?.email ?? '',
+      phone: profile?.phone ?? '',
+    })
+  }, [accountData?.profile])
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileMoreOpen(false) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [mobileMoreOpen])
+
+  function updateProfileField(field: keyof typeof profileForm, value: string) {
+    setProfileForm(current => ({ ...current, [field]: value }))
+    setProfileNotice('')
+  }
+
+  async function saveBusinessProfile() {
+    setProfileNotice('')
+    setAccountAction('profile')
+    try {
+      await onMutateAccount('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profileForm) })
+      setProfileNotice('Business profile saved to this wallet account.')
+    } catch (error) { setProfileNotice(readableError(error)) }
+    finally { setAccountAction('') }
+  }
+
+  async function deleteBusinessAccount() {
+    if (deleteConfirmation !== 'DELETE KUDIROLL ACCOUNT') return
+    setProfileNotice('')
+    setAccountAction('delete-account')
+    try { await onDeleteAccount(deleteConfirmation) }
+    catch (error) {
+      setProfileNotice(readableError(error))
+      setAccountAction('')
+    }
+  }
+
+  async function createSavedTeam() {
+    setWorkerError('')
+    if (teamName.trim().length < 2) return setWorkerError('Enter a team name.')
+    setAccountAction('team')
+    try {
+      await onMutateAccount('/api/account/teams', { method: 'POST', body: JSON.stringify({ name: teamName, description: teamDescription }) })
+      setTeamName('')
+      setTeamDescription('')
+    } catch (error) { setWorkerError(readableError(error)) }
+    finally { setAccountAction('') }
+  }
+
+  async function addWorker() {
+    setWorkerError('')
+    if (!selectedTeam) return setWorkerError('Create or select a team first.')
+    if (workerName.trim().length < 2) return setWorkerError('Enter this person’s name.')
+    if (!isStarknetAddress(workerAddress)) return setWorkerError('Enter a valid Starknet wallet address beginning with 0x.')
+    if (!/^\d+(?:\.\d{1,6})?$/.test(workerAmount) || Number(workerAmount) <= 0) return setWorkerError('Enter a default USDC amount.')
+    setAccountAction('worker')
+    try {
+      await onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers`, { method: 'POST', body: JSON.stringify({ name: workerName, walletAddress: workerAddress, defaultAmountUsdc: workerAmount }) })
+      setWorkerName('')
+      setWorkerAddress('')
+      setWorkerAmount('')
+    } catch (error) { setWorkerError(readableError(error)) }
+    finally { setAccountAction('') }
+  }
+
+  function updateAmount(id: string, value: string) {
+    const clean = value.replace(/[^\d.]/g, '')
+    setDraftAmounts(current => ({ ...current, [id]: clean }))
+    setDraftNotice('')
+  }
+
+  async function prepareDraft() {
+    if (!wallet) return setDraftNotice('Connect your wallet before previewing this pay run.')
+    if (!supportsPrivatePayroll) return setDraftNotice('This wallet can manage your KudiRoll account, but private payroll requires Ready X with STRK20 API 0.10.3.')
+    if (!selectedTeam) return setDraftNotice('Select a saved team first.')
+    if (!selectedItems.length || selectedItems.some(worker => !Number(draftAmounts[worker.id] || worker.defaultAmountUsdc))) return setDraftNotice('Select workers and enter an amount greater than zero for each person.')
+    if (privateBalanceUsdc === null) return setDraftNotice('Check your available balance before previewing this pay run.')
+    if (totalDraft > privateBalanceUsdc) return setDraftNotice('The total is higher than your available private USDC balance.')
+    setAccountAction('payrun')
+    try {
+      const result = await onMutateAccount('/api/account/pay-runs', { method: 'POST', body: JSON.stringify({ teamId: selectedTeam.id, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) }) })
+      setActivePayRun(result.payRun)
+      setBatchState('idle')
+      setBatchMessage('Review this saved snapshot, then ask Ready to simulate the complete private batch.')
+      setDraftNotice('Pay run saved as a draft. Nothing was sent.')
+    } catch (error) { setDraftNotice(readableError(error)) }
+    finally { setAccountAction('') }
+  }
+
+  async function simulateBatch() {
+    if (!wallet || !activePayRun) return
+    if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
+    setAccountAction('simulate-batch')
+    try {
+      await simulatePrivatePayroll(wallet.request.bind(wallet), activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc })))
+      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'prepared' }) })
+      setActivePayRun(current => current ? { ...current, status: 'prepared' } : current)
+      setBatchState('passed')
+      setBatchMessage(`Ready accepted all ${activePayRun.items.length} private transfers as one atomic batch.`)
+    } catch (error) {
+      setBatchState('failed')
+      const message = readableError(error)
+      setBatchMessage(/NOT_REGISTERED/i.test(message) ? 'At least one worker is not registered for private transfers in Ready. Register every receiving wallet, then retry.' : `Ready rejected the batch: ${message}`)
+    } finally { setAccountAction('') }
+  }
+
+  async function submitBatch() {
+    if (!wallet || !activePayRun || batchState !== 'passed' || batchConfirmation !== 'PAY TEAM') return
+    if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
+    setAccountAction('submit-batch')
+    try {
+      const result = await submitPrivatePayroll(wallet.request.bind(wallet), activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc })))
+      const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
+      const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
+      if (!transactionHash) throw new Error('Ready returned no transaction hash.')
+      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitted', transactionHash }) })
+      setActivePayRun(current => current ? { ...current, status: 'submitted', transactionHash } : current)
+      setBatchState('submitted')
+      setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
+      setBatchConfirmation('')
+    } catch (error) {
+      setBatchState('failed')
+      setBatchMessage(`Payroll was not submitted: ${readableError(error)}`)
+    } finally { setAccountAction('') }
+  }
+
+  return <div className="productFrame">
+    <aside className="sideRail">
+      <button className="brandButton" onClick={() => onSection('overview')}><img src="/kudiroll-mark.svg" alt="" /><strong>KudiRoll</strong></button>
+      <nav aria-label="Primary navigation">
+        {nav.map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => onSection(item.id)}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}
+      </nav>
+      <div className="railBottom">
+        <button className={section === 'settings' ? 'active' : ''} onClick={() => onSection('settings')}><AppIcon name="people" /><span>Business profile</span></button>
+      </div>
+    </aside>
+
+    <section className="productWorkspace">
+      <header className="productTopbar">
+        <div><span className="eyebrow">KudiRoll payroll</span><h1>{pageTitle[section]}</h1></div>
+        <div className="topActions">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+          {!wallet ? <button className="compactButton" onClick={onConnect} disabled={Boolean(busy)}>{busy === 'wallet' ? 'Connecting…' : 'Connect wallet'}</button> : <button className="walletChip" onClick={onReadBalance} title="Check available balance"><span>{shortAddress(walletAddress)}</span><i>{privateBalanceUsdc === null ? 'Check balance' : `${privateBalanceUsdc} USDC`}</i></button>}
+        </div>
+      </header>
+
+      {section === 'overview' && <div className="dashboardLayout">
+        <div className="dashboardMain">
+          <section className="welcomeStrip">
+            <div><span>Private payroll</span><h2>Pay your team with confidence</h2><p>Add your team, enter each payment, and review the full pay run before you continue.</p></div>
+            <button onClick={() => onSection('payroll')}>Start a pay run</button>
+          </section>
+
+          <div className="metricGrid">
+            <article className="balanceCard">
+              <div className="metricHead"><span>Available to pay</span><AppIcon name="wallet" /></div>
+              <strong>{privateBalanceUsdc === null ? '—' : privateBalanceUsdc.toFixed(6)}</strong>
+              <small>{wallet ? privateBalance : 'Connect your wallet to see your private USDC'}</small>
+              <div className="balanceActions">{!wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={onDisconnect}>Disconnect</button></>}</div>
+            </article>
+            <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => onSection('workers')}>Manage teams</button></article>
+          </div>
+
+          <section className="panel recentPanel">
+            <div className="panelTitle"><div><span>Pay runs</span><h3>Recent payments</h3></div><button className="plainButton" onClick={() => onSection('activity')}>View history</button></div>
+            {accountData?.payRuns.length ? <div className="orderList">{accountData.payRuns.slice(0, 3).map(run => <PayRunRow key={run.id} run={run} compact />)}</div> : <EmptyState title="No pay runs yet" detail="Create a team, select its workers, and save your first pay run." />}
+          </section>
+
+          <section className="panel routePanel routeStrip"><div className="routeIcon"><AppIcon name="route" /></div><div><span>Guided product test</span><strong>Test how it works before your first payroll</strong><p>This test stays separate from business pay runs. If live testing is enabled, approving in Ready can move real USDC.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section>
+        </div>
+
+        <aside className="dashboardAside">
+          <section className="panel healthPanel"><div className="panelTitle"><div><span>Getting started</span><h3>Account setup</h3></div><span className="countPill">{setupStepsComplete} of 3</span></div><div className="checkList"><StatusLine done={profileComplete} label="Complete business profile" /><StatusLine done={Boolean(teams.length)} label="Create a saved team" /><StatusLine done={teams.some(team => team.workers.length)} label="Add workers" /></div></section>
+        </aside>
+      </div>}
+
+      {section === 'workers' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Saved payroll groups</span><h2>Teams</h2><p>Create reusable teams, then save each worker and their default private USDC amount.</p></div><span className="countPill">{teams.length} {teams.length === 1 ? 'team' : 'teams'}</span></section>
+        <section className="panel formPanel"><div className="twoFieldGrid"><label>Team name<input value={teamName} onChange={event => setTeamName(event.target.value)} placeholder="e.g. Lagos operations" /></label><label>Description<input value={teamDescription} onChange={event => setTeamDescription(event.target.value)} placeholder="Optional payroll note" /></label></div><div className="formFooter"><span>{walletAddress ? `Saved to ${shortAddress(walletAddress)}.` : 'Saved to your verified wallet account.'}</span><button onClick={createSavedTeam} disabled={Boolean(accountAction)}>{accountAction === 'team' ? 'Creating…' : 'Create team'}</button></div></section>
+        {teams.length ? <>
+          <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} onClick={() => { setSelectedTeamId(team.id); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
+          {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" onClick={async () => { if (confirm(`Delete ${selectedTeam.name}? Existing pay-run history will remain.`)) await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }) }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" onClick={() => onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' })}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
+        </> : <EmptyState title="Create your first team" detail="Teams keep worker details separate and reusable for future pay runs." />}
+      </div>}
+
+      {section === 'payroll' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); setDraftNotice('') }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
+        <section className="panel payrollComposer">
+          {selectedTeam?.workers.length ? <>
+            <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
+            <div className="composerHead"><div><span>{selectedTeam.name}</span><strong>{totalDraft.toFixed(6)} USDC</strong></div><button className="plainButton" onClick={() => setSelectedWorkers(Object.fromEntries(selectedTeam.workers.map(worker => [worker.id, selectedItems.length !== selectedTeam.workers.length])))}>{selectedItems.length === selectedTeam.workers.length ? 'Clear selection' : 'Select everyone'}</button></div>
+            <div className="payrollRows">{selectedTeam.workers.map(worker => <div className={`payrollRow ${selectedWorkers[worker.id] === false ? 'excluded' : ''}`} key={worker.id}><input className="workerCheck" type="checkbox" checked={selectedWorkers[worker.id] !== false} onChange={event => setSelectedWorkers(current => ({ ...current, [worker.id]: event.target.checked }))} aria-label={`Include ${worker.name}`} /><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><label>Amount in USDC<input value={draftAmounts[worker.id] ?? worker.defaultAmountUsdc} onChange={event => updateAmount(worker.id, event.target.value)} inputMode="decimal" placeholder="0.00" disabled={selectedWorkers[worker.id] === false} /></label></div>)}</div>
+            <div className="composerFooter"><div><span>{selectedItems.length} of {selectedTeam.workers.length} selected · Available balance</span><strong>{privateBalanceUsdc === null ? 'Check private balance' : `${privateBalanceUsdc} USDC`}</strong></div><button onClick={prepareDraft} disabled={Boolean(accountAction)}>{accountAction === 'payrun' ? 'Saving…' : 'Save and review pay run'}</button></div>
+            {draftNotice && <div className="draftNotice"><AppIcon name="activity" /><span>{draftNotice}</span></div>}
+            {activePayRun && <section className="batchReview">
+              <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>One private batch</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
+              <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
+              <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
+              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction)}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : `Simulate ${activePayRun.items.length} private transfers`}</button> : null}
+              {batchState === 'passed' && <div className="batchApproval"><strong>One approval will submit every transfer atomically.</strong><p>If any action cannot be prepared, the batch should not be submitted. Type PAY TEAM to continue.</p><input value={batchConfirmation} onChange={event => setBatchConfirmation(event.target.value)} placeholder="PAY TEAM" autoComplete="off" /><button onClick={submitBatch} disabled={batchConfirmation !== 'PAY TEAM' || Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for Ready…' : 'Sign and pay team once'}</button></div>}
+            </section>}
+          </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
+        </section>
+      </div>}
+
+      {section === 'activity' && <div className="sectionStack"><section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Pay-run history</h2><p>Saved payroll snapshots remain unchanged even when a team is edited later.</p></div><button className="secondary" onClick={onRefreshOrders}>Refresh providers</button></section>{accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}{orderHistoryError && <div className="inlineError">{orderHistoryError}</div>}<section className="panel historyPanel"><div className="panelTitle"><div><span>Test settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section></div>}
+
+      {section === 'providers' && <div className="sectionStack"><section className="panel sectionIntro"><div><span className="panelKicker">Payment options</span><h2>How your team gets paid</h2><p>Choose a delivery method with a clear readiness state.</p></div><span className="statePill neutral">1 available · 1 test</span></section><div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Paycrest quotes, recipient verification, order creation, and status are connected for testing. End-to-end settlement is not certified." /><ProviderCard title="More local payouts" status="Coming later" tone="neutral" detail="Additional local payout routes will appear after complete end-to-end testing." /></div><section className="panel labCallout"><div><span className="panelKicker">Before your first payroll</span><h3>Test the Naira payout journey</h3><p>This guided test is separate from team payroll. A Ready approval can move real USDC when live testing is enabled.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section></div>}
+
+      {section === 'lab' && paycrestPilot}
+
+      {section === 'settings' && <div className="sectionStack profileStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Business account</span><h2>Business profile</h2><p>Keep the owner and business details associated with this KudiRoll wallet account up to date.</p></div></section>
+        <section className="panel profilePanel">
+          <div className="panelTitle"><div><span>Profile details</span><h3>Account owner</h3></div>{accountData?.profile.updatedAt && <span className="profileUpdated">Updated {new Date(accountData.profile.updatedAt).toLocaleDateString()}</span>}</div>
+          <div className="profileGrid">
+            <label>Owner’s full name<input value={profileForm.ownerName} onChange={event => updateProfileField('ownerName', event.target.value)} placeholder="e.g. Amina Bello" autoComplete="name" /></label>
+            <label>Business name<input value={profileForm.businessName} onChange={event => updateProfileField('businessName', event.target.value)} placeholder="e.g. Bello Foods" autoComplete="organization" /></label>
+            <label>Role or title<input value={profileForm.jobTitle} onChange={event => updateProfileField('jobTitle', event.target.value)} placeholder="e.g. Owner" autoComplete="organization-title" /></label>
+            <label>Business email<input value={profileForm.email} onChange={event => updateProfileField('email', event.target.value)} placeholder="name@business.com" type="email" autoComplete="email" /></label>
+            <label>Phone number <span className="optionalLabel">Optional</span><input value={profileForm.phone} onChange={event => updateProfileField('phone', event.target.value)} placeholder="+234…" type="tel" autoComplete="tel" /></label>
+            <label>Wallet account<input value={accountData?.walletAddress || walletAddress} readOnly aria-readonly="true" /></label>
+          </div>
+          <div className="formFooter"><span>Profile details are stored by KudiRoll under this wallet address.</span><button onClick={saveBusinessProfile} disabled={Boolean(accountAction)}>{accountAction === 'profile' ? 'Saving…' : 'Save profile'}</button></div>
+          {profileNotice && <div className="profileNotice">{profileNotice}</div>}
+        </section>
+        <section className="panel accountScope">
+          <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div></div>
+          <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Not held by KudiRoll</strong><span>Wallet keys, viewing keys, proofs, OTPs, recovery phrases, and bank details.</span></div></div>
+        </section>
+        <section className="panel dangerZone">
+          <div><span>Permanent action</span><h3>Delete KudiRoll account</h3><p>This permanently removes this business profile, saved teams, workers, and pay-run records from KudiRoll. It does not delete your Starknet wallet, onchain transactions, or records retained independently by Paycrest.</p></div>
+          <label>Type DELETE KUDIROLL ACCOUNT<input value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} placeholder="DELETE KUDIROLL ACCOUNT" autoComplete="off" /></label>
+          <button className="dangerButton" onClick={deleteBusinessAccount} disabled={deleteConfirmation !== 'DELETE KUDIROLL ACCOUNT' || Boolean(accountAction)}>{accountAction === 'delete-account' ? 'Deleting account…' : 'Delete account permanently'}</button>
+        </section>
+      </div>}
+    </section>
+
+    {mobileMoreOpen && <div className="mobileMoreBackdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setMobileMoreOpen(false) }}>
+      <section id="mobile-more-menu" className="mobileMoreSheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
+        <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu">×</button></div>
+        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and guided Naira testing</small></span><i>→</i></button>
+        <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="people" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><i>→</i></button>
+      </section>
+    </div>}
+    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="route" /><span>More</span></button></nav>
+  </div>
+}
+
+type IconName = 'home' | 'people' | 'wallet' | 'activity' | 'route'
+
+function ThemeToggle({ theme, onToggle, className = '' }: { theme: Theme; onToggle: () => void; className?: string }) {
+  const next = theme === 'light' ? 'dark' : 'light'
+  return <button type="button" className={`themeToggle ${className}`.trim()} onClick={onToggle} aria-label={`Switch to ${next} theme`} title={`Switch to ${next} theme`}>
+    {theme === 'light'
+      ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" /></svg>
+      : <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>}
+  </button>
+}
+
+function AppIcon({ name }: { name: IconName }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V21h13V9.5M9 21v-7h6v7" /></>,
+    people: <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.4-4 2.1-6 5.5-6s5.1 2 5.5 6M16 5.5a3 3 0 0 1 0 5.8M16 14c3 0 4.5 2 4.8 5" /></>,
+    wallet: <><path d="M3 6.5h15a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a2 2 0 0 1-2-2z" /><path d="M3 7V5a2 2 0 0 1 2-2h12M16 12h5v5h-5a2.5 2.5 0 0 1 0-5Z" /></>,
+    activity: <><path d="M4 20V10M10 20V4M16 20v-7M22 20V7" /></>,
+    route: <><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5M15.5 18H10a4 4 0 0 1-4-4V8.5" /></>,
+  }
+  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+}
+
+function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
+  return <div className="emptyState"><div><strong>{title}</strong><p>{detail}</p></div>{action && onAction && <button className="secondary" onClick={onAction}>{action}</button>}</div>
+}
+
+function StatusLine({ done, label }: { done: boolean; label: string }) {
+  return <div><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{label}</span></div>
+}
+
+function ProviderCard({ title, status, detail, tone }: { title: string; status: string; detail: string; tone: 'safe' | 'blocked' | 'neutral' }) {
+  return <article className="providerCard"><div className="providerTop"><div className={`providerMark ${tone}`}><AppIcon name={tone === 'safe' ? 'wallet' : 'route'} /></div><span className={`statePill ${tone}`}>{status}</span></div><h3>{title}</h3><p>{detail}</p></article>
+}
+
+function PaycrestOrderRow({ order, compact = false }: { order: PaycrestOrderSummary; compact?: boolean }) {
+  const initiated = order.status.toLowerCase() === 'initiated'
+  const expired = order.status.toLowerCase() === 'expired'
+  const final = ['validated', 'settled'].includes(order.status.toLowerCase())
+  const time = order.updatedAt || order.createdAt
+  return <article className={`historyRow ${compact ? 'compact' : ''}`}>
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="route" /></span><div><strong>{order.accountName || 'Naira payout'}</strong><span>{order.bankLast4 ? `Account ending ${order.bankLast4}` : order.reference || shortAddress(order.id)}</span></div></div>
+    {!compact && <div className="historyAmount"><strong>{order.amountNgn ? `₦${Number(order.amountNgn).toLocaleString()}` : order.amountUsdc ? `${order.amountUsdc} USDC` : 'Amount unavailable'}</strong><span>{order.amountUsdc && order.amountNgn ? `${order.amountUsdc} USDC` : order.network || 'Starknet'}</span></div>}
+    <div className="historyStatus"><span className={`statePill ${final ? 'safe' : initiated ? 'neutral' : 'blocked'}`}>{order.status}</span><small>{initiated ? 'Order created · awaiting deposit' : expired ? 'Expired · deposit not detected' : final ? 'Payout completed' : 'Provider status'}</small></div>
+    {!compact && <div className="historyMeta"><strong>{time ? new Date(time).toLocaleDateString() : '—'}</strong><span>{shortAddress(order.id)}</span></div>}
+  </article>
+}
+
+function PayRunRow({ run, compact = false }: { run: SavedPayRun; compact?: boolean }) {
+  return <article className={`historyRow ${compact ? 'compact' : ''}`}>
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong><span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span></div></div>
+    {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>Private payroll</span></div>}
+    <div className="historyStatus"><span className={`statePill ${run.status === 'submitted' ? 'safe' : 'neutral'}`}>{run.status}</span><small>{run.status === 'draft' ? 'Saved · nothing sent' : 'Payroll status'}</small></div>
+    {!compact && <div className="historyMeta"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong><span>{shortAddress(run.id)}</span></div>}
+  </article>
+}
+
+function shortAddress(value: string) {
+  if (!value) return 'Wallet connected'
+  return value.length > 14 ? `${value.slice(0, 7)}…${value.slice(-5)}` : value
+}
+
+function initials(value: string) {
+  return value.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'KR'
+}

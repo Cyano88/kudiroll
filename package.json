@@ -1,0 +1,35 @@
+{
+  "name": "kudiroll",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "node --watch --import tsx server.ts",
+    "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "probe:paycrest": "node --import tsx scripts/paycrest-public-probe.ts",
+    "start": "node --import tsx server.ts"
+  },
+  "dependencies": {
+    "@starknet-io/get-starknet": "^4.0.8",
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "starknet": "10.4.0",
+    "tsx": "^4.20.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.0.15",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^5.8.3",
+    "vite": "^8.2.1"
+  }
+}

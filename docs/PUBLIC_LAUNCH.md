@@ -1,0 +1,79 @@
+# Public launch
+
+KudiRoll is currently a private alpha. This checklist is the release gate; passing a frontend build alone does not make the payroll service production-ready.
+
+## Recovered baseline
+
+- React, Vite, and TypeScript frontend with an Express backend.
+- Wallet-signed accounts, reusable teams and workers, immutable pay-run snapshots, and history.
+- STRK20 batch simulation, literal `PAY TEAM` confirmation, one wallet submission, and transaction-hash persistence.
+- Responsive light and dark interfaces, including mobile navigation.
+- Paycrest is isolated as a guided settlement pilot and live order creation is disabled by default.
+- Local typecheck, tests, and production build pass.
+
+## Release gates
+
+| Gate | State | Required evidence |
+| --- | --- | --- |
+| Reproducible source and CI | In progress | First reviewed commit, public remote, CI green, generated artifacts excluded. |
+| License and contribution policy | Blocked on owner choice | Explicit license, contribution guide, code of conduct if accepting contributions. |
+| Live private payroll | Blocked | One successful batch with at least two Ready-registered recipients and final transaction status. |
+| Production data | Blocked | Managed encrypted database, migrations, backups, restore drill, retention and deletion procedure. |
+| Production sessions | Blocked | Durable session store, key rotation, revocation, rate limits, and abuse controls. |
+| Hosting | Blocked | HTTPS deployment, health monitoring, logs without payroll data, rollback procedure, and secret management. |
+| Security and privacy | Blocked | Threat review, dependency review, security contact, privacy policy, terms, and incident response. |
+| Paycrest settlement | Pilot | Deposit detection, payout completion, expiry, refund, failure, reconciliation, and recovery certification. |
+| Starknet ecosystem package | Blocked by launch gates | Public URL, repository, architecture, compatibility matrix, demo, and verified transaction reference. |
+
+Implemented security baseline: sensitive Paycrest routes require a wallet-signed session, provider history is isolated by refund wallet, provider order refunds are bound to the authenticated wallet, and pay runs cannot skip preparation before submission. These controls reduce application risk but do not replace production rate limiting, durable sessions, monitoring, or chain-receipt verification.
+
+## Safe release sequence
+
+### 1. Establish the public codebase
+
+- Review the untracked source and create the first commit only when the owner approves.
+- Select a license; do not publish as open source without an explicit choice.
+- Connect the repository to CI and protect the main branch.
+
+### 2. Certify the money path
+
+- Use the smallest safe Mainnet amounts.
+- Use at least two receiving wallets already registered for Ready private transfers.
+- Capture only technical evidence: versions, count, simulation result, transaction hash, and final status.
+- Never place worker names, wallet secrets, viewing keys, proofs, OTPs, or bank details in issues or public logs.
+
+### 3. Replace local-only infrastructure
+
+- Replace `.data/kudiroll.json` and in-memory sessions before multi-instance deployment.
+- Add schema migrations, encryption, backups, retention, account deletion, rate limiting, telemetry, alerting, and rollback.
+- Configure `NODE_ENV=production`, `HOST=0.0.0.0`, a deployment-assigned `PORT`, a dedicated `STARKNET_RPC_URL`, and server-only secrets.
+
+### 4. Limited alpha
+
+- Start with invited businesses and capped transaction sizes.
+- Keep Paycrest live-order creation off until its complete Starknet settlement lifecycle is certified.
+- Track support and reconciliation outcomes before widening access.
+
+### 5. Ecosystem release
+
+- Publish the integration and security documentation.
+- Produce a short wallet-to-pay-run demo with sanitized recipients.
+- Approach Starknet wallet, infrastructure, community, and ecosystem-listing channels with verified claims only.
+
+## Live certification record
+
+Use this sanitized template after the run:
+
+```text
+Date/time (UTC):
+Environment: Starknet Mainnet
+Wallet and version:
+STRK20 API versions reported:
+Recipient count:
+Token contract:
+Simulation result:
+Submission transaction hash:
+Final transaction status:
+Application pay-run status:
+Recovery/retry needed:
+```

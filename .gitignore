@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+phase0-artifacts/
+.playwright-cli/
+npm-debug.log*
+*.log
+.data/
+output/
+vite.config.ts.timestamp-*.mjs
