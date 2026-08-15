@@ -12,14 +12,14 @@ Generated 2026-08-15 by the `strk20-privacy-integration` skill. This is the exec
 - Backend: `src/server/account-router.ts` handles wallet-signed sessions; `src/server/account-store.ts` stores business, team, and pay-run data in a local JSON file; `src/server/phase0-router.ts` and `src/server/paycrest.ts` isolate the Paycrest API behind the server.
 - Tests: Node test runner in `tests/account-store.test.ts` and `tests/phase0.test.ts`; GitHub Actions in `.github/workflows/ci.yml`.
 - Contracts: no Cairo/Scarb project and no app-owned Starknet account or viewing key.
-- Repository state: public MIT-licensed source at `https://github.com/Cyano88/kudiroll` with green CI and a valid empty `strk20.json`; no live deployment, demo video, or mainnet evidence hashes yet.
+- Repository state: public MIT-licensed source at `https://github.com/Cyano88/kudiroll`, green CI, and a Railway public alpha; no demo video or mainnet evidence hashes yet.
 - Privacy goal: conceal the employer-to-worker relationship, individual recipients, amounts, token type, and spent notes during payroll; make shield and intentional settlement exits visibly public; preserve a controlled evidence trail for legitimate investigation without exposing unrelated workers.
 - Environment: Starknet Mainnet with Ready as the first certified privacy wallet. Standard wallets may authenticate to KudiRoll but private actions degrade gracefully when STRK20 capability is absent.
 
 ## 2. Integration problem
 
 - KudiRoll already models a useful payroll product, but it sends raw Wallet API requests instead of using the supported starknet.js `WalletAccountV6` route.
-- The product can submit private transfers, but it does not yet offer a complete treasury shield flow, note-maturity state, live pool-fee handling, or chain-finality recovery.
+- The product now has the typed shield flow and treasury-readiness engine; manual Ready/Mainnet certification remains before it can claim a proven live shield.
 - Local JSON persistence and in-memory sessions are not production infrastructure.
 - Paycrest is a useful accountable exit, but its complete Starknet order, deposit, webhook, payout, refund, and reconciliation lifecycle is not certified.
 - Judges currently have no public source, deployment, video, or mainnet transaction evidence to score.
@@ -95,13 +95,13 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 9. Phase 2 — shielded treasury readiness
 
-**Status:** planned.
+**Status:** implementation complete 2026-08-15; manual Ready/Mainnet checkpoint pending. KudiRoll persists only public shield hash, amount, and timestamp, queries Starknet receipts server-side, distinguishes pending/reverted/unknown states, enforces the documented 10-block maturity window, restores state after refresh, and gates payroll simulation/submission. Local typecheck, 24/24 tests, and production build passed. No Mainnet transaction was submitted.
 
 1. Add a deliberate consent action for showing private USDC balance; do not request it automatically on connect.
-2. Read the current pool fee at runtime rather than hard-coding a historical amount.
+2. Let the Wallet API calculate and display the current pool fee at approval time; its prepare result does not expose a standalone pool-fee field, so KudiRoll never invents or hard-codes one.
 3. Track the shield transaction hash and final status, then display note maturity/readiness before enabling payroll.
 4. Explain why a newly shielded note cannot be spent immediately and why KudiRoll does not bundle shield with payroll by default.
-5. Add minimum sensible amount and insufficient balance/fee validation.
+5. Apply a disclosed 0.01 USDC KudiRoll product minimum and surface wallet simulation failures for insufficient public USDC or current fee allowance.
 6. Persist only public transaction references and app workflow state; never persist notes, proofs, viewing keys, or wallet-private balance data.
 
 **Exit:** the treasury panel truthfully reports whether the wallet, balance consent, fee allowance, finality, and maturity prerequisites are ready.

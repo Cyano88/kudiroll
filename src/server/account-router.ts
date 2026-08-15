@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { Router } from 'express'
 import { RpcProvider, constants } from 'starknet'
-import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, getAccount, removeWorker, updateBusinessProfile, updatePayRun, updateTeam } from './account-store'
+import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, getAccount, recordTreasuryShield, removeWorker, updateBusinessProfile, updatePayRun, updateTeam } from './account-store'
+import { deriveTreasuryReadiness } from '../treasury-readiness'
 
 type Challenge = { address: string; expiresAt: number; typedData: any }
 type Session = { address: string; expiresAt: number }
@@ -63,6 +64,25 @@ function provider() {
     : new RpcProvider({ nodeUrl: constants.NetworkName.SN_MAIN })
 }
 
+async function treasuryReadiness(address: string) {
+  const account = await getAccount(address)
+  const shield = account.treasuryShields[0] ?? null
+  if (!shield) return deriveTreasuryReadiness(null, { outcome: 'pending' })
+  try {
+    const rpc = provider()
+    const receipt = await rpc.getTransactionReceipt(shield.transactionHash)
+    if (receipt.isError()) return deriveTreasuryReadiness(shield, { outcome: 'unknown' })
+    const value = receipt.value as { block_number?: number }
+    if (receipt.isReverted()) return deriveTreasuryReadiness(shield, { outcome: 'reverted', acceptedBlockNumber: value.block_number })
+    const acceptedBlockNumber = value.block_number
+    if (acceptedBlockNumber === undefined) return deriveTreasuryReadiness(shield, { outcome: 'pending' })
+    return deriveTreasuryReadiness(shield, { outcome: 'succeeded', acceptedBlockNumber, currentBlockNumber: await rpc.getBlockNumber() })
+  } catch (error: any) {
+    const message = String(error?.message || error)
+    return deriveTreasuryReadiness(shield, { outcome: /not found|transaction hash not found|code.?29/i.test(message) ? 'pending' : 'unknown' })
+  }
+}
+
 export function createAccountRouter() {
   const router = Router()
   router.use((_req, res, next) => {
@@ -117,6 +137,16 @@ export function createAccountRouter() {
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
     }
+  })
+
+  router.post('/treasury/shields', async (req, res) => {
+    try { res.status(201).json({ ok: true, shield: await recordTreasuryShield(requireSessionAddress(req), req.body) }) }
+    catch (error) { res.status(statusOf(error)).json({ ok: false, error: messageOf(error) }) }
+  })
+
+  router.get('/treasury/readiness', async (req, res) => {
+    try { res.json({ ok: true, readiness: await treasuryReadiness(requireSessionAddress(req)) }) }
+    catch (error) { res.status(statusOf(error)).json({ ok: false, error: messageOf(error) }) }
   })
 
   router.patch('/profile', async (req, res) => {

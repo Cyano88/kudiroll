@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildDepositAction, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, normalizeStarknetAddress, requireStarknetMainnet, simulateUsdcShield, supportsStrk20Api, toUsdcBaseUnits, withTimeout } from '../src/phase0'
+import { buildDepositAction, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, KUDIROLL_MIN_SHIELD_USDC, normalizeStarknetAddress, requireStarknetMainnet, simulateUsdcShield, supportsStrk20Api, toUsdcBaseUnits, withTimeout } from '../src/phase0'
 import {
   STARKNET_USDC,
   createPhase0PaycrestOrder,
@@ -59,6 +59,11 @@ test('builds the exact STRK20 shield deposit action', () => {
   assert.deepEqual(buildDepositAction('1'), {
     type: 'deposit', token: STARKNET_USDC, amount: '0xf4240',
   })
+})
+
+test('enforces a disclosed KudiRoll shield minimum without calling it a protocol fee', () => {
+  assert.equal(KUDIROLL_MIN_SHIELD_USDC, '0.01')
+  assert.throws(() => buildDepositAction('0.009999'), /product minimum is not a protocol fee/)
 })
 
 test('routes shield simulation through the typed wallet facade', async () => {

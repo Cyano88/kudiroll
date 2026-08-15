@@ -2,7 +2,7 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). WalletAccountV6 discovery, typed STRK20 operations, and the shield simulation/approval screen are implemented and tested. Mainnet certification, production database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). WalletAccountV6 discovery, typed STRK20 operations, shield approval, server-backed finality tracking, and the 10-block treasury maturity gate are implemented and tested. Mainnet certification, production database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
@@ -12,21 +12,24 @@ Wallet-secured private payroll for Nigerian businesses. Businesses create reusab
 4. Select a team, include some or all workers, and adjust the amounts.
 5. Save an immutable pay-run snapshot and review the combined total.
 6. Separately simulate and shield treasury USDC. The public approval and public pool deposit are shown as two explicit wallet prompts.
-7. Simulate every STRK20 private transfer together in the privacy wallet.
-8. Type `PAY TEAM` and approve the atomic action list once.
-9. Review saved pay-run and settlement-provider records in History.
+7. KudiRoll records only the public shield hash, checks finality from Starknet, and waits 10 blocks before enabling a newly funded payroll.
+8. Simulate every STRK20 private transfer together in the privacy wallet.
+9. Type `PAY TEAM` and approve the atomic action list once.
+10. Review saved pay-run and settlement-provider records in History.
 
 Every receiving address must first be registered with the compatible privacy wallet. A submitted pay run cannot be edited.
 
 ## Account persistence
 
 - A signed Starknet challenge creates a 12-hour HTTP-only session.
-- Teams, workers, and pay-run snapshots are isolated by wallet address.
+- Teams, workers, pay-run snapshots, and public shield references are isolated by wallet address.
 - Local development persists data atomically in `.data/kudiroll.json`; the file is ignored by Git.
 - A server restart requires a fresh wallet signature but does not erase account data.
 - The Railway public alpha runs one replica with `.data` on a persistent volume. Production must replace the JSON adapter with a managed database and durable sessions before multi-instance use.
 
 KudiRoll does not request or store wallet private keys, viewing keys, notes, proofs, OTPs, or bank details. Worker names and payroll amounts are business data and therefore require production-grade database encryption, backup, retention, and access controls before public use.
+
+STRK20 pool fees are calculated and displayed by the privacy wallet at approval time. KudiRoll does not hard-code or promise a historical fee. The app applies a disclosed 0.01 USDC product minimum and lets wallet simulation reject insufficient public USDC or fee allowance.
 
 ## Paycrest pilot
 

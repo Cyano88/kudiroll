@@ -69,3 +69,12 @@ test('persists a business profile and deletes only the wallet account record', a
   assert.equal(recreated.profile.ownerName, '')
   assert.equal(recreated.teams.length, 0)
 })
+
+test('persists only public shield evidence and deduplicates a transaction hash', async () => {
+  const first = await store.recordTreasuryShield(owner, { transactionHash: '0xabc123', amountUsdc: '1.25' })
+  const duplicate = await store.recordTreasuryShield(owner, { transactionHash: '0xABC123', amountUsdc: '9' })
+  const account = await store.getAccount(owner)
+  assert.equal(duplicate.transactionHash, first.transactionHash)
+  assert.equal(account.treasuryShields.length, 1)
+  assert.deepEqual(Object.keys(account.treasuryShields[0]).sort(), ['amountUsdc', 'submittedAt', 'transactionHash'])
+})

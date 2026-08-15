@@ -179,6 +179,13 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .shieldSteps > div { display: flex; align-items: center; gap: 9px; border: 1px solid #e0e4de; border-radius: 8px; padding: 11px; background: #f7f9f6; }
 .shieldSteps strong { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; background: #405b39; font-size: .64rem; }
 .shieldSteps span { color: #697168; font-size: .65rem; font-weight: 700; }
+.treasuryTracker, .treasuryGate { display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #e0e4de; border-radius: 8px; padding: 14px 16px; background: #f7f9f6; }
+.treasuryTracker > div, .treasuryGate > div { display: grid; gap: 4px; }
+.treasuryTracker span, .treasuryGate strong { color: #7f857d; font-size: .62rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.treasuryTracker strong, .treasuryGate span { color: #414940; font-size: .7rem; line-height: 1.45; }
+.treasuryTracker small { color: #7f857d; font-size: .62rem; line-height: 1.45; }
+.treasuryGate.ready { border-color: #b8dbc4; background: #eef8f1; }
+.treasuryGate.waiting { border-color: #e4d1af; background: #fbf6ec; }
 .shieldControls, .shieldApproval { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: end; gap: 10px; }
 .shieldControls label { position: relative; }
 .shieldControls label small { position: absolute; right: 12px; bottom: 13px; color: #888f87; font-size: .6rem; }
@@ -385,6 +392,7 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
   .welcomeStrip button { width: max-content; }
   .metricGrid, .dashboardAside, .providerGrid, .twoFieldGrid { grid-template-columns: 1fr; }
   .shieldSteps, .shieldControls, .shieldApproval { grid-template-columns: 1fr; }
+  .treasuryTracker, .treasuryGate { align-items: flex-start; flex-direction: column; }
   .workerForm { grid-template-columns: 1fr; }
   .pilotReadiness { grid-template-columns: 1fr; }
   .historyRow, .historyRow.compact { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
@@ -507,6 +515,12 @@ html[data-theme='dark'] .composerHead span { color: #7d8880; }
 html[data-theme='dark'] .shieldDisclosure { color: #d2b98f; background: #2a2117; }
 html[data-theme='dark'] .shieldSteps > div { border-color: #29312b; background: #171d18; }
 html[data-theme='dark'] .shieldSteps span { color: #9ba59d; }
+html[data-theme='dark'] .treasuryTracker,
+html[data-theme='dark'] .treasuryGate { border-color: #29312b; background: #171d18; }
+html[data-theme='dark'] .treasuryTracker strong,
+html[data-theme='dark'] .treasuryGate span { color: #c3cec5; }
+html[data-theme='dark'] .treasuryGate.ready { border-color: #315a3f; background: #17251b; }
+html[data-theme='dark'] .treasuryGate.waiting { border-color: #5a4931; background: #251f17; }
 html[data-theme='dark'] .shieldApproval { border-color: #29312b; }
 
 html[data-theme='dark'] .emptyState { background: #171d18; box-shadow: inset 0 1px #29312b, inset 0 -1px #29312b; }

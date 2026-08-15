@@ -15,6 +15,7 @@ import {
   supportsStrk20Api,
   withTimeout,
 } from './phase0'
+import type { TreasuryReadiness, TreasuryShieldRecord } from './treasury-readiness'
 
 const walletStore = createStore()
 
@@ -61,7 +62,7 @@ type SavedTeam = { id: string; name: string; description: string; workers: Saved
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; createdAt: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -82,6 +83,7 @@ function privateBalanceError(reason: unknown) {
 function privacyActionError(reason: unknown) {
   const message = readableError(reason)
   if (/SCREEN|SANCTION|COMPLIANCE|POLICY/i.test(message)) return 'The wallet screening check did not approve this request. Nothing was submitted.'
+  if (/INSUFFICIENT|NOT ENOUGH|BALANCE.*LOW/i.test(message)) return 'The wallet reports insufficient public USDC or fee allowance. Review the current fee shown in the wallet, reduce the shield amount, or add public funds.'
   if (/USER_REFUSED|USER_REJECTED|rejected by user|cancelled/i.test(message)) return 'Wallet approval was cancelled. Nothing was submitted.'
   if (/NOT_REGISTERED/i.test(message)) return 'This wallet has no shielded STRK20 account yet. Shield USDC first.'
   if (/API_VERSION_NOT_SUPPORTED|not support.*STRK20/i.test(message)) return 'This wallet does not support the required STRK20 privacy API.'
@@ -140,6 +142,8 @@ export function App() {
   const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
   const [shieldMessage, setShieldMessage] = useState('Simulate first. Shielding then requires a public token approval and a public pool deposit in your wallet.')
   const [shieldTransactionHash, setShieldTransactionHash] = useState('')
+  const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(null)
+  const [treasuryError, setTreasuryError] = useState('')
 
   const walletAddress = wallet?.address || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
@@ -171,8 +175,22 @@ export function App() {
       void loadInstitutions()
       void localJson('/api/phase0/health').then(data => setLiveOrdersEnabled(Boolean(data.liveOrdersEnabled))).catch(() => setLiveOrdersEnabled(false))
     }
-    if (enteredApp && (section === 'overview' || section === 'activity' || section === 'lab')) void loadPaycrestOrders()
-  }, [section, enteredApp])
+    if (enteredApp && accountData && (section === 'overview' || section === 'activity' || section === 'lab')) void loadPaycrestOrders()
+  }, [section, enteredApp, accountData?.walletAddress])
+
+  useEffect(() => {
+    if (!accountData?.walletAddress) {
+      setTreasuryReadiness(null)
+      return
+    }
+    void loadTreasuryReadiness()
+  }, [accountData?.walletAddress])
+
+  useEffect(() => {
+    if (!accountData?.walletAddress || !treasuryReadiness || !['submitted', 'maturing', 'unknown'].includes(treasuryReadiness.status)) return
+    const timer = window.setInterval(() => void loadTreasuryReadiness(), 20_000)
+    return () => window.clearInterval(timer)
+  }, [accountData?.walletAddress, treasuryReadiness?.status])
 
   async function localJson(path: string, init: RequestInit = {}, attempts = 2) {
     let lastError: unknown
@@ -305,6 +323,22 @@ export function App() {
     setAccountData(data.account)
   }
 
+  async function loadTreasuryReadiness() {
+    setTreasuryError('')
+    try {
+      const data = await accountJson('/api/account/treasury/readiness')
+      const readiness = data.readiness as TreasuryReadiness
+      setTreasuryReadiness(readiness)
+      if (readiness.shield?.transactionHash) {
+        setShieldTransactionHash(readiness.shield.transactionHash)
+        setShieldState(readiness.status === 'reverted' || readiness.status === 'unknown' ? 'failed' : 'submitted')
+        setShieldMessage(readiness.message)
+      }
+    } catch (error) {
+      setTreasuryError(readableError(error))
+    }
+  }
+
   async function mutateAccount(path: string, init: RequestInit) {
     const result = await accountJson(path, init)
     await refreshAccount()
@@ -320,6 +354,8 @@ export function App() {
     setPrivateBalance('Not checked')
     setPrivateBalanceUsdc(null)
     setAccountData(null)
+    setTreasuryReadiness(null)
+    setTreasuryError('')
     resetOrder()
     setEnteredApp(false)
   }
@@ -377,10 +413,13 @@ export function App() {
     setBusy('submit-shield')
     try {
       const result = await withTimeout(submitUsdcShield(wallet, shieldAmount), 180_000, 'The wallet did not return before timeout. Check your wallet and Starkscan before retrying; the transaction may still have been submitted.')
+      await accountJson('/api/account/treasury/shields', { method: 'POST', body: JSON.stringify({ transactionHash: result.transaction_hash, amountUsdc: shieldAmount }) })
+      await refreshAccount()
       setShieldState('submitted')
       setShieldTransactionHash(result.transaction_hash)
-      setShieldMessage('Shield transaction submitted. Wait for finality and about 10 blocks of separation before preparing payroll, then refresh the private balance.')
+      setShieldMessage('Shield transaction submitted. KudiRoll is checking Starknet finality and the required 10-block maturity window.')
       setShieldConfirmation('')
+      await loadTreasuryReadiness()
     } catch (error) {
       setShieldState('failed')
       setShieldMessage(privacyActionError(error))
@@ -554,11 +593,14 @@ export function App() {
     </section>
   </div>
 
+  const readinessLabel = treasuryReadiness?.status === 'ready' ? 'Payroll ready' : treasuryReadiness?.status === 'maturing' ? treasuryReadiness.blocksRemaining + ' blocks left' : treasuryReadiness?.status === 'submitted' ? 'Awaiting finality' : treasuryReadiness?.status === 'reverted' ? 'Reverted' : treasuryReadiness?.status === 'unknown' ? 'Verification delayed' : 'Not tracked'
   const shieldPanel = <section className="panel shieldPanel">
-    <div className="panelTitle"><div><span>Shield treasury</span><h3>Move public USDC into private payroll</h3></div><span className={'statePill ' + (shieldState === 'submitted' ? 'safe' : shieldState === 'failed' ? 'blocked' : 'neutral')}>{shieldState === 'submitted' ? 'Submitted' : shieldState === 'passed' ? 'Ready to approve' : shieldState === 'failed' ? 'Needs attention' : 'Simulation required'}</span></div>
+    <div className="panelTitle"><div><span>Shield treasury</span><h3>Move public USDC into private payroll</h3></div><span className={'statePill ' + (treasuryReadiness?.status === 'ready' ? 'safe' : treasuryReadiness?.status === 'reverted' || treasuryReadiness?.status === 'unknown' || shieldState === 'failed' ? 'blocked' : 'neutral')}>{readinessLabel}</span></div>
     <p className="shieldDisclosure">Shielding is public: your wallet address, token amount, approval, and deposit timing are visible onchain. Private payroll begins only after USDC enters the STRK20 pool.</p>
     <div className="shieldSteps"><div><strong>1</strong><span>Public USDC approval</span></div><div><strong>2</strong><span>Public pool deposit</span></div><div><strong>3</strong><span>Wait about 10 blocks</span></div></div>
-    <div className="shieldControls"><label>Amount to shield<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation(''); setShieldTransactionHash('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in wallet...' : 'Simulate shield'}</button></div>
+    <div className="treasuryTracker"><div><span>Treasury readiness</span><strong>{treasuryReadiness?.message || 'KudiRoll will track finality after you submit a shield.'}</strong><small>Current STRK20 pool fees are calculated and shown by your wallet during approval; KudiRoll does not hard-code them.</small></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
+    {treasuryError && <div className="inlineError">{treasuryError}</div>}
+    <div className="shieldControls"><label>Amount to shield<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in wallet...' : 'Simulate shield'}</button></div>
     <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Simulation passed' : shieldState === 'submitted' ? 'Shield submitted' : shieldState === 'failed' ? 'Shield not ready' : 'No transaction yet'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>
     {shieldState === 'passed' && <div className="shieldApproval"><label>Type SHIELD USDC to continue<input value={shieldConfirmation} onChange={event => setShieldConfirmation(event.target.value)} placeholder="SHIELD USDC" autoComplete="off" /></label><button onClick={shieldUsdc} disabled={shieldConfirmation !== 'SHIELD USDC' || Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for wallet...' : 'Shield ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
@@ -577,6 +619,7 @@ export function App() {
     orderHistoryError={orderHistoryError}
     paycrestPilot={paycrestPilot}
     shieldPanel={shieldPanel}
+    treasuryReadiness={treasuryReadiness}
     accountData={accountData}
     onMutateAccount={mutateAccount}
     onRefreshOrders={loadPaycrestOrders}
@@ -669,6 +712,7 @@ function ProductShell({
   orderHistoryError,
   paycrestPilot,
   shieldPanel,
+  treasuryReadiness,
   accountData,
   onMutateAccount,
   onRefreshOrders,
@@ -691,6 +735,7 @@ function ProductShell({
   orderHistoryError: string
   paycrestPilot: React.ReactNode
   shieldPanel: React.ReactNode
+  treasuryReadiness: TreasuryReadiness | null
   accountData: AccountData | null
   onMutateAccount: (path: string, init: RequestInit) => Promise<any>
   onRefreshOrders: () => void
@@ -734,6 +779,8 @@ function ProductShell({
   const selectedItems = selectedTeam?.workers.filter(worker => selectedWorkers[worker.id] !== false) ?? []
   const totalDraft = selectedItems.reduce((sum, worker) => sum + Number(draftAmounts[worker.id] || worker.defaultAmountUsdc || 0), 0)
   const supportsPrivatePayroll = supportsStrk20Api(walletVersions)
+  const hasExistingSpendableBalance = treasuryReadiness?.status === 'none' && privateBalanceUsdc !== null && privateBalanceUsdc > 0
+  const treasuryReady = treasuryReadiness?.status === 'ready' || hasExistingSpendableBalance
   const pageTitle: Record<ProductSection, string> = {
     overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
     providers: 'Payout methods', settings: 'Business profile', lab: 'Guided payout test',
@@ -842,6 +889,7 @@ function ProductShell({
   async function simulateBatch() {
     if (!wallet || !activePayRun) return
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
+    if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Verify a mature shield or check an existing spendable private balance before preparing payroll.')
     setAccountAction('simulate-batch')
     try {
       await withTimeout(simulatePrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 90_000)
@@ -859,6 +907,7 @@ function ProductShell({
   async function submitBatch() {
     if (!wallet || !activePayRun || batchState !== 'passed' || batchConfirmation !== 'PAY TEAM') return
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
+    if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
     setAccountAction('submit-batch')
     try {
       const result = await withTimeout(submitPrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 180_000)
@@ -939,6 +988,7 @@ function ProductShell({
 
       {section === 'payroll' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); setDraftNotice('') }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
+        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Treasury ready' : 'Treasury not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the spendable private balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('overview')}>View treasury</button></div>
         <section className="panel payrollComposer">
           {selectedTeam?.workers.length ? <>
             <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
@@ -950,7 +1000,7 @@ function ProductShell({
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>One private batch</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
-              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction)}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : `Simulate ${activePayRun.items.length} private transfers`}</button> : null}
+              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Simulate ' + activePayRun.items.length + ' private transfers' : 'Waiting for treasury readiness'}</button> : null}
               {batchState === 'passed' && <div className="batchApproval"><strong>One approval will submit every transfer atomically.</strong><p>If any action cannot be prepared, the batch should not be submitted. Type PAY TEAM to continue.</p><input value={batchConfirmation} onChange={event => setBatchConfirmation(event.target.value)} placeholder="PAY TEAM" autoComplete="off" /><button onClick={submitBatch} disabled={batchConfirmation !== 'PAY TEAM' || Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for Ready…' : 'Sign and pay team once'}</button></div>}
             </section>}
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}

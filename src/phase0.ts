@@ -1,4 +1,5 @@
 export const STARKNET_USDC = '0x33068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb'
+export const KUDIROLL_MIN_SHIELD_USDC = '0.01'
 import type { STRK20_ACTION, WalletAccountV6 } from 'starknet'
 
 export const STRK20_API_VERSION = '0.10.3'
@@ -81,6 +82,9 @@ export function buildWithdrawAction(recipient: string, amountUsdc: string) {
 }
 
 export function buildDepositAction(amountUsdc: string) {
+  if (BigInt(toUsdcBaseUnits(amountUsdc)) < BigInt(toUsdcBaseUnits(KUDIROLL_MIN_SHIELD_USDC))) {
+    throw new Error('KudiRoll shields at least 0.01 USDC. This product minimum is not a protocol fee.')
+  }
   return {
     type: 'deposit' as const,
     token: STARKNET_USDC,

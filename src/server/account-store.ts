@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import type { TreasuryShieldRecord } from '../treasury-readiness'
 
 export type SavedWorker = {
   id: string
@@ -50,7 +51,7 @@ export type BusinessProfile = {
   updatedAt: string
 }
 
-type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; createdAt: string; updatedAt: string }
+type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; createdAt: string; updatedAt: string }
 type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
@@ -113,9 +114,25 @@ async function mutate<T>(operation: (store: StoreFile) => T | Promise<T>) {
 function accountIn(store: StoreFile, address: string) {
   const key = walletAddress(address)
   const now = new Date().toISOString()
-  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], createdAt: now, updatedAt: now })
+  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], treasuryShields: [], createdAt: now, updatedAt: now })
   account.profile ??= emptyProfile()
+  account.treasuryShields ??= []
   return account
+}
+
+export async function recordTreasuryShield(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const transactionHash = cleanText(input?.transactionHash, 80).toLowerCase()
+    if (!/^0x[0-9a-f]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('A valid Starknet transaction hash is required.'), { status: 400 })
+    const existing = account.treasuryShields.find(item => item.transactionHash === transactionHash)
+    if (existing) return existing
+    const shield: TreasuryShieldRecord = { transactionHash, amountUsdc: amount(input?.amountUsdc), submittedAt: new Date().toISOString() }
+    account.treasuryShields.unshift(shield)
+    account.treasuryShields = account.treasuryShields.slice(0, 20)
+    account.updatedAt = shield.submittedAt
+    return shield
+  })
 }
 
 export async function getAccount(address: string) {
