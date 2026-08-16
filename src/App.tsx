@@ -134,6 +134,7 @@ export function App() {
   const [orderError, setOrderError] = useState('')
   const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>([])
   const [orderHistoryError, setOrderHistoryError] = useState('')
+  const [paycrestConfigured, setPaycrestConfigured] = useState<boolean | null>(null)
   const [liveOrdersEnabled, setLiveOrdersEnabled] = useState(false)
   const [simulationState, setSimulationState] = useState<'idle' | 'passed' | 'failed' | 'submitted'>('idle')
   const [simulationMessage, setSimulationMessage] = useState('Create a verified Paycrest order to begin.')
@@ -238,10 +239,15 @@ export function App() {
     setOrderHistoryError('')
     try {
       const data = await localJson('/api/phase0/paycrest/orders')
+      setPaycrestConfigured(data.configured !== false)
       setPaycrestOrders(Array.isArray(data.orders) ? data.orders : [])
     } catch (error) {
       setOrderHistoryError(readableError(error))
     }
+  }
+
+  async function refreshHistory() {
+    await Promise.all([refreshAccount(), loadTreasuryReadiness(), loadPaycrestOrders()])
   }
 
   async function probePaycrest() {
@@ -623,6 +629,7 @@ export function App() {
     privateBalanceUsdc={privateBalanceUsdc}
     busy={busy}
     paycrestOrders={paycrestOrders}
+    paycrestConfigured={paycrestConfigured}
     orderHistoryError={orderHistoryError}
     paycrestPilot={paycrestPilot}
     shieldPanel={shieldPanel}
@@ -630,6 +637,7 @@ export function App() {
     accountData={accountData}
     onMutateAccount={mutateAccount}
     onRefreshOrders={loadPaycrestOrders}
+    onRefreshHistory={refreshHistory}
     onConnect={connectWallet}
     onReadBalance={checkBalance}
     onDisconnect={leaveWallet}
@@ -718,6 +726,7 @@ function ProductShell({
   privateBalanceUsdc,
   busy,
   paycrestOrders,
+  paycrestConfigured,
   orderHistoryError,
   paycrestPilot,
   shieldPanel,
@@ -725,6 +734,7 @@ function ProductShell({
   accountData,
   onMutateAccount,
   onRefreshOrders,
+  onRefreshHistory,
   onConnect,
   onReadBalance,
   onDisconnect,
@@ -741,6 +751,7 @@ function ProductShell({
   privateBalanceUsdc: number | null
   busy: string
   paycrestOrders: PaycrestOrderSummary[]
+  paycrestConfigured: boolean | null
   orderHistoryError: string
   paycrestPilot: React.ReactNode
   shieldPanel: React.ReactNode
@@ -748,6 +759,7 @@ function ProductShell({
   accountData: AccountData | null
   onMutateAccount: (path: string, init: RequestInit) => Promise<any>
   onRefreshOrders: () => void
+  onRefreshHistory: () => void
   onConnect: () => void
   onReadBalance: () => void
   onDisconnect: () => void
@@ -1016,7 +1028,13 @@ function ProductShell({
         </section>
       </div>}
 
-      {section === 'activity' && <div className="sectionStack"><section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Pay-run history</h2><p>Saved payroll snapshots remain unchanged even when a team is edited later.</p></div><button className="secondary" onClick={onRefreshOrders}>Refresh providers</button></section>{accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}{orderHistoryError && <div className="inlineError">{orderHistoryError}</div>}<section className="panel historyPanel"><div className="panelTitle"><div><span>Test settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section></div>}
+      {section === 'activity' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked treasury shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
+        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Treasury shields</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked treasury shields" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
+        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
+        {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
+        <section className="panel historyPanel"><div className="panelTitle"><div><span>Optional settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Paycrest is not configured" detail="Private payroll and STRK20 history remain available. Configure Paycrest only when testing Naira settlement." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section>
+      </div>}
 
       {section === 'providers' && <div className="sectionStack"><section className="panel sectionIntro"><div><span className="panelKicker">Payment options</span><h2>How your team gets paid</h2><p>Choose a delivery method with a clear readiness state.</p></div><span className="statePill neutral">1 available · 1 test</span></section><div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Paycrest quotes, recipient verification, order creation, and status are connected for testing. End-to-end settlement is not certified." /><ProviderCard title="More local payouts" status="Coming later" tone="neutral" detail="Additional local payout routes will appear after complete end-to-end testing." /></div><section className="panel labCallout"><div><span className="panelKicker">Before your first payroll</span><h3>Test the Naira payout journey</h3><p>This guided test is separate from team payroll. A Ready approval can move real USDC when live testing is enabled.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section></div>}
 
@@ -1092,6 +1110,19 @@ function StatusLine({ done, label }: { done: boolean; label: string }) {
 
 function ProviderCard({ title, status, detail, tone }: { title: string; status: string; detail: string; tone: 'safe' | 'blocked' | 'neutral' }) {
   return <article className="providerCard"><div className="providerTop"><div className={`providerMark ${tone}`}><AppIcon name={tone === 'safe' ? 'wallet' : 'route'} /></div><span className={`statePill ${tone}`}>{status}</span></div><h3>{title}</h3><p>{detail}</p></article>
+}
+
+function TreasuryShieldRow({ shield, readiness }: { shield: TreasuryShieldRecord; readiness: TreasuryReadiness | null }) {
+  const status = readiness?.status || 'recorded'
+  const safe = status === 'ready'
+  const blocked = status === 'reverted' || status === 'unknown'
+  const detail = status === 'ready' ? 'Finalized and mature' : status === 'maturing' ? `${readiness?.blocksRemaining ?? 0} blocks until mature` : status === 'submitted' ? 'Awaiting finality' : status === 'reverted' ? 'Transaction reverted' : status === 'unknown' ? 'Verification delayed' : 'Saved transaction evidence'
+  return <article className="historyRow">
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="wallet" /></span><div><strong>Public treasury shield</strong><a href={`https://starkscan.co/tx/${shield.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(shield.transactionHash)}</a></div></div>
+    <div className="historyAmount"><strong>{shield.amountUsdc} USDC</strong><span>Public pool deposit</span></div>
+    <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{status}</span><small>{detail}</small></div>
+    <div className="historyMeta"><strong>{new Date(shield.submittedAt).toLocaleDateString()}</strong><span>STRK20</span></div>
+  </article>
 }
 
 function PaycrestOrderRow({ order, compact = false }: { order: PaycrestOrderSummary; compact?: boolean }) {

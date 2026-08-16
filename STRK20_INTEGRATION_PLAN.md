@@ -95,7 +95,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 9. Phase 2 — shielded treasury readiness
 
-**Status:** implementation complete 2026-08-15; manual Ready/Mainnet checkpoint pending. KudiRoll persists only public shield hash, amount, and timestamp, queries Starknet receipts server-side, distinguishes pending/reverted/unknown states, enforces the documented 10-block maturity window, restores state after refresh, and gates payroll simulation/submission. Local typecheck, 24/24 tests, and production build passed. No Mainnet transaction was submitted.
+**Status:** implementation complete 2026-08-15; history remediation added 2026-08-16; manual Ready/Mainnet checkpoint pending. KudiRoll persists only public shield hash, amount, and timestamp, exposes tracked shields independently in Transaction History, queries Starknet receipts server-side, distinguishes pending/reverted/unknown states, enforces the documented 10-block maturity window, restores state after refresh, and gates payroll simulation/submission. An unconfigured Paycrest provider now degrades without replacing core account history. No Mainnet transaction has been verified by KudiRoll yet.
 
 1. Add a deliberate consent action for showing private USDC balance; do not request it automatically on connect.
 2. Let the Wallet API calculate and display the current pool fee at approval time; its prepare result does not expose a standalone pool-fee field, so KudiRoll never invents or hard-codes one.

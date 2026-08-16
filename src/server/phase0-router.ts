@@ -44,7 +44,9 @@ export function createPhase0Router() {
   })
   router.get('/paycrest/orders', async (req, res) => {
     try {
-      res.json({ ok: true, orders: await listPaycrestOrders(requireSessionAddress(req)) })
+      const address = requireSessionAddress(req)
+      if (!process.env.PAYCREST_API_KEY?.trim()) return res.json({ ok: true, configured: false, orders: [] })
+      res.json({ ok: true, configured: true, orders: await listPaycrestOrders(address) })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
     }
