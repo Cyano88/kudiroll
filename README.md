@@ -64,6 +64,7 @@ Open `http://127.0.0.1:4174` when `PORT=4174` is configured in `.env.local`; oth
 ```dotenv
 HOST=127.0.0.1
 STARKNET_RPC_URL=
+STRK20_POOL_ADDRESS=0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a
 KUDIROLL_DATA_FILE=.data/kudiroll.json
 KUDIROLL_AUTH_FILE=.data/kudiroll-auth.json
 KUDIROLL_WEBAUTHN_ORIGIN=http://localhost:4173
@@ -72,6 +73,8 @@ PHASE0_LIVE_ORDER_ENABLED=false
 ```
 
 If `STARKNET_RPC_URL` is empty, Starknet.js selects its supported Starknet mainnet public provider. Use a dedicated production RPC for reliability.
+
+`STRK20_POOL_ADDRESS` gates payroll finalization: KudiRoll marks a pay run finalized only when Starknet reports success and the receipt contains an event from that configured pool. The example value is the canonical Mainnet pool published in the sprint's Day 0 guide and used by its transaction verifier; a successful receipt without that proof remains `unknown`.
 
 KudiRoll is currently Mainnet-only because its account challenge, private-USDC token, and STRK20 flow are Mainnet-specific. The client rejects wallets connected to another network before creating a session.
 

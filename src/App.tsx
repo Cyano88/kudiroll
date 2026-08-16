@@ -64,7 +64,7 @@ type ConnectedWallet = WalletAccountV6
 type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
 type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
-type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; createdAt: string; updatedAt: string }
+type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
 type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
@@ -845,7 +845,7 @@ function ProductShell({
   const [accountAction, setAccountAction] = useState('')
   const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
   const [emailVerificationCode, setEmailVerificationCode] = useState('')
-  const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
+  const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'unknown' | 'failed'>('idle')
   const [batchMessage, setBatchMessage] = useState('')
   const [batchConfirmation, setBatchConfirmation] = useState('')
   const [profileForm, setProfileForm] = useState({ ownerName: '', businessName: '', jobTitle: '', email: '', phone: '' })
@@ -987,6 +987,7 @@ function ProductShell({
     if (!wallet) return setDraftNotice('Connect your wallet before previewing this pay run.')
     if (!supportsPrivatePayroll) return setDraftNotice('This wallet can manage your KudiRoll account, but private payroll requires Ready X with STRK20 API 0.10.3.')
     if (!selectedTeam) return setDraftNotice('Select a saved team first.')
+    if (accountData?.payRuns.some(run => run.status === 'submitting' || run.status === 'unknown')) return setDraftNotice('Resolve the existing unknown payroll submission in History before creating another pay run.')
     if (!selectedItems.length || selectedItems.some(worker => !Number(draftAmounts[worker.id] || worker.defaultAmountUsdc))) return setDraftNotice('Select workers and enter an amount greater than zero for each person.')
     if (privateBalanceUsdc === null) return setDraftNotice('Check your available balance before previewing this pay run.')
     if (totalDraft > privateBalanceUsdc) return setDraftNotice('The total is higher than your available private USDC balance.')
@@ -1025,18 +1026,67 @@ function ProductShell({
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
     setAccountAction('submit-batch')
     try {
-      const result = await withTimeout(submitPrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 180_000)
-      const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
-      const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
-      if (!transactionHash) throw new Error('Ready returned no transaction hash.')
-      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitted', transactionHash }) })
-      setActivePayRun(current => current ? { ...current, status: 'submitted', transactionHash } : current)
+      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitting' }) })
+      setActivePayRun(current => current ? { ...current, status: 'submitting', submissionAttemptedAt: new Date().toISOString() } : current)
+      const submission = submitPrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))).then(async result => {
+        const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
+        const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
+        if (!transactionHash) throw new Error('Payroll wallet outcome is still unknown because Ready returned no transaction hash.')
+        try {
+          await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitted', transactionHash }) })
+        } catch {
+          await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'unknown', transactionHash }) }).catch(() => null)
+          setActivePayRun(current => current ? { ...current, status: 'unknown', transactionHash } : current)
+          throw new Error(`Payroll wallet outcome is still unknown after Ready returned transaction hash ${transactionHash} because KudiRoll could not save confirmation.`)
+        }
+        setActivePayRun(current => current ? { ...current, status: 'submitted', transactionHash } : current)
+        setBatchState('submitted')
+        setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
+        return transactionHash
+      })
+      const transactionHash = await withTimeout(submission, 180_000, 'Payroll wallet outcome is still unknown after three minutes.')
       setBatchState('submitted')
       setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
       setBatchConfirmation('')
     } catch (error) {
-      setBatchState('failed')
-      setBatchMessage(`Payroll was not submitted: ${readableError(error)}`)
+      const message = readableError(error)
+      if (/outcome is still unknown/i.test(message)) {
+        const recoveredHash = message.match(/transaction hash (0x[0-9a-fA-F]{1,64})/)?.[1] || ''
+        const update = await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'unknown', ...(recoveredHash ? { transactionHash: recoveredHash } : {}) }) }).catch(() => null)
+        if (update?.payRun) setActivePayRun(update.payRun)
+        else if (recoveredHash) setActivePayRun(current => current ? { ...current, status: 'unknown', transactionHash: recoveredHash } : current)
+        else onRefreshHistory()
+        setBatchState('unknown')
+        setBatchMessage(recoveredHash
+          ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
+          : 'Ready has not returned a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
+      } else {
+        await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) }).catch(() => onRefreshHistory())
+        setActivePayRun(current => current ? { ...current, status: 'failed' } : current)
+        setBatchState('failed')
+        setBatchMessage(`Payroll was not submitted: ${message}`)
+      }
+    } finally { setAccountAction('') }
+  }
+
+  async function verifyPayRun(payRunId: string) {
+    setAccountAction(`verify-pay-run:${payRunId}`)
+    try {
+      const result = await onMutateAccount(`/api/account/pay-runs/${payRunId}/verify`, { method: 'POST' })
+      if (result.pending) window.alert(result.message)
+    } catch (error) {
+      window.alert(`Could not verify this payroll transaction. ${readableError(error)}`)
+    } finally { setAccountAction('') }
+  }
+
+  async function resolveUnknownPayRun(payRunId: string) {
+    const confirmation = window.prompt('First check Ready activity and confirm that no transaction was submitted. Then type NO TRANSACTION IN READY to unlock payroll retries.')
+    if (confirmation !== 'NO TRANSACTION IN READY') return
+    setAccountAction(`resolve-pay-run:${payRunId}`)
+    try {
+      await onMutateAccount(`/api/account/pay-runs/${payRunId}/resolve-unknown`, { method: 'POST', body: JSON.stringify({ confirmation }) })
+    } catch (error) {
+      window.alert(`Could not release this unknown submission. ${readableError(error)}`)
     } finally { setAccountAction('') }
   }
 
@@ -1114,7 +1164,7 @@ function ProductShell({
             {activePayRun && <section className="batchReview">
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>One private batch</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
-              <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
+              <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
               {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Simulate ' + activePayRun.items.length + ' private transfers' : 'Waiting for treasury readiness'}</button> : null}
               {batchState === 'passed' && <div className="batchApproval"><strong>One approval will submit every transfer atomically.</strong><p>If any action cannot be prepared, the batch should not be submitted. Type PAY TEAM to continue.</p><input value={batchConfirmation} onChange={event => setBatchConfirmation(event.target.value)} placeholder="PAY TEAM" autoComplete="off" /><button onClick={submitBatch} disabled={batchConfirmation !== 'PAY TEAM' || Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for Ready…' : 'Sign and pay team once'}</button></div>}
             </section>}
@@ -1125,7 +1175,7 @@ function ProductShell({
       {section === 'activity' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked treasury shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Treasury shields</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked treasury shields" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
-        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
+        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Optional settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Paycrest is not configured" detail="Private payroll and STRK20 history remain available. Configure Paycrest only when testing Naira settlement." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section>
       </div>}
@@ -1240,12 +1290,15 @@ function PaycrestOrderRow({ order, compact = false }: { order: PaycrestOrderSumm
   </article>
 }
 
-function PayRunRow({ run, compact = false }: { run: SavedPayRun; compact?: boolean }) {
+function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, verifying = false }: { run: SavedPayRun; compact?: boolean; onVerify?: (payRunId: string) => void; onResolveUnknown?: (payRunId: string) => void; verifying?: boolean }) {
+  const safe = run.status === 'finalized'
+  const blocked = ['reverted', 'unknown', 'failed'].includes(run.status)
+  const detail = run.finalityMessage || (run.status === 'draft' ? 'Saved · nothing sent' : run.status === 'prepared' ? 'Wallet simulation passed' : run.status === 'submitting' ? 'Waiting for Ready; do not retry' : run.status === 'submitted' ? 'Hash recorded · verify finality' : 'Payroll status')
   return <article className={`historyRow ${compact ? 'compact' : ''}`}>
-    <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong><span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span></div></div>
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong>{run.transactionHash ? <a href={`https://starkscan.co/tx/${run.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(run.transactionHash)}</a> : <span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span>}</div></div>
     {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>Private payroll</span></div>}
-    <div className="historyStatus"><span className={`statePill ${run.status === 'submitted' ? 'safe' : 'neutral'}`}>{run.status}</span><small>{run.status === 'draft' ? 'Saved · nothing sent' : 'Payroll status'}</small></div>
-    {!compact && <div className="historyMeta"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong><span>{shortAddress(run.id)}</span></div>}
+    <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{run.status}</span><small>{detail}</small></div>
+    {!compact && <div className="historyMeta"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && !safe && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}</div>}
   </article>
 }
 

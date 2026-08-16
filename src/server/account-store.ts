@@ -27,17 +27,23 @@ export type SavedPayRunItem = {
   workerName: string
   walletAddress: string
   amountUsdc: string
-  status: 'draft' | 'prepared' | 'submitted' | 'failed'
+  status: PayRunStatus
 }
+
+export type PayRunStatus = 'draft' | 'prepared' | 'submitting' | 'submitted' | 'finalized' | 'reverted' | 'unknown' | 'failed'
 
 export type SavedPayRun = {
   id: string
   teamId: string
   teamName: string
-  status: 'draft' | 'prepared' | 'submitted' | 'failed'
+  status: PayRunStatus
   totalUsdc: string
   items: SavedPayRunItem[]
   transactionHash: string
+  submissionAttemptedAt: string
+  finalityCheckedAt: string
+  acceptedBlockNumber: number | null
+  finalityMessage: string
   createdAt: string
   updatedAt: string
 }
@@ -142,6 +148,12 @@ function accountIn(store: StoreFile, address: string) {
   account.treasuryShields ??= []
   account.passkeys ??= []
   account.encryptedWalletBackup ??= null
+  for (const payRun of account.payRuns) {
+    payRun.submissionAttemptedAt ??= ''
+    payRun.finalityCheckedAt ??= ''
+    payRun.acceptedBlockNumber ??= null
+    payRun.finalityMessage ??= ''
+  }
   return account
 }
 
@@ -388,6 +400,7 @@ export async function removeWorker(address: string, teamId: string, workerId: st
 export async function createPayRun(address: string, input: any) {
   return mutate(store => {
     const account = accountIn(store, address)
+    if (account.payRuns.some(item => item.status === 'submitting' || item.status === 'unknown')) throw Object.assign(new Error('Resolve the existing unknown payroll submission before creating another pay run.'), { status: 409 })
     const team = account.teams.find(item => item.id === cleanText(input?.teamId, 64))
     if (!team) throw Object.assign(new Error('Select a saved team.'), { status: 404 })
     const requested = Array.isArray(input?.items) ? input.items : []
@@ -401,7 +414,7 @@ export async function createPayRun(address: string, input: any) {
     })
     const total = items.reduce((sum: bigint, item: SavedPayRunItem) => sum + amountUnits(item.amountUsdc), 0n)
     const now = new Date().toISOString()
-    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', createdAt: now, updatedAt: now }
+    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', createdAt: now, updatedAt: now }
     account.payRuns.unshift(payRun)
     account.updatedAt = now
     return payRun
@@ -414,23 +427,78 @@ export async function updatePayRun(address: string, payRunId: string, input: any
     const payRun = account.payRuns.find(item => item.id === payRunId)
     if (!payRun) throw Object.assign(new Error('Pay run not found.'), { status: 404 })
     const status = cleanText(input?.status, 24)
-    if (!['prepared', 'submitted', 'failed'].includes(status)) throw Object.assign(new Error('Invalid pay-run status.'), { status: 400 })
-    if (payRun.status === 'submitted') throw Object.assign(new Error('A submitted pay run cannot be changed.'), { status: 409 })
+    if (!['prepared', 'submitting', 'submitted', 'unknown', 'failed'].includes(status)) throw Object.assign(new Error('Invalid pay-run status.'), { status: 400 })
     const transitions: Record<SavedPayRun['status'], SavedPayRun['status'][]> = {
       draft: ['prepared', 'failed'],
-      prepared: ['prepared', 'submitted', 'failed'],
+      prepared: ['prepared', 'submitting', 'failed'],
+      submitting: ['submitted', 'unknown', 'failed'],
+      unknown: ['submitted', 'unknown'],
       failed: ['prepared', 'failed'],
-      submitted: [],
+      submitted: ['submitted'],
+      finalized: [],
+      reverted: [],
     }
     if (!transitions[payRun.status].includes(status as SavedPayRun['status'])) {
       throw Object.assign(new Error(`A ${payRun.status} pay run cannot move directly to ${status}.`), { status: 409 })
     }
-    const transactionHash = cleanText(input?.transactionHash, 80)
+    const transactionHash = cleanText(input?.transactionHash, 80).toLowerCase()
     if (status === 'submitted' && !/^0x[0-9a-fA-F]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('A transaction hash is required for a submitted pay run.'), { status: 400 })
+    if (transactionHash && !/^0x[0-9a-fA-F]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('Invalid transaction hash.'), { status: 400 })
+    if (transactionHash && account.payRuns.some(item => item.id !== payRun.id && item.transactionHash.toLowerCase() === transactionHash)) throw Object.assign(new Error('This transaction hash is already attached to another pay run.'), { status: 409 })
+    if (payRun.transactionHash && transactionHash && payRun.transactionHash !== transactionHash) throw Object.assign(new Error('A pay run cannot change its recovered transaction hash.'), { status: 409 })
     payRun.status = status as SavedPayRun['status']
-    payRun.transactionHash = status === 'submitted' ? transactionHash : payRun.transactionHash
+    if ((status === 'submitted' || status === 'unknown') && transactionHash) payRun.transactionHash = transactionHash
+    if (status === 'submitting') payRun.submissionAttemptedAt = new Date().toISOString()
+    if (status === 'unknown') payRun.finalityMessage = 'Wallet submission outcome is unknown. Do not retry this payroll until its transaction is recovered or ruled out.'
     payRun.items = payRun.items.map(item => ({ ...item, status: status as SavedPayRunItem['status'] }))
     payRun.updatedAt = new Date().toISOString()
+    account.updatedAt = payRun.updatedAt
+    return payRun
+  })
+}
+
+export async function recordPayRunFinality(address: string, payRunId: string, input: { status: 'finalized' | 'reverted' | 'unknown'; acceptedBlockNumber?: number; message: string }) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const payRun = account.payRuns.find(item => item.id === payRunId)
+    if (!payRun) throw Object.assign(new Error('Pay run not found.'), { status: 404 })
+    if (!payRun.transactionHash) throw Object.assign(new Error('This pay run has no transaction hash to verify.'), { status: 409 })
+    const transitions: Record<PayRunStatus, Array<'finalized' | 'reverted' | 'unknown'>> = {
+      draft: [],
+      prepared: [],
+      submitting: [],
+      failed: [],
+      submitted: ['finalized', 'reverted', 'unknown'],
+      unknown: ['finalized', 'reverted', 'unknown'],
+      finalized: ['finalized'],
+      reverted: ['reverted'],
+    }
+    if (!transitions[payRun.status].includes(input.status)) throw Object.assign(new Error(`A ${payRun.status} pay run cannot be recorded as ${input.status}.`), { status: 409 })
+    const acceptedBlockNumber = input.acceptedBlockNumber
+    if (acceptedBlockNumber !== undefined && (!Number.isSafeInteger(acceptedBlockNumber) || acceptedBlockNumber < 0)) throw Object.assign(new Error('Invalid accepted block number.'), { status: 400 })
+    payRun.status = input.status
+    payRun.items = payRun.items.map(item => ({ ...item, status: input.status }))
+    payRun.acceptedBlockNumber = acceptedBlockNumber ?? payRun.acceptedBlockNumber
+    payRun.finalityCheckedAt = new Date().toISOString()
+    payRun.finalityMessage = cleanText(input.message, 240)
+    payRun.updatedAt = payRun.finalityCheckedAt
+    account.updatedAt = payRun.updatedAt
+    return payRun
+  })
+}
+
+export async function resolveUnknownPayRun(address: string, payRunId: string, confirmation: unknown) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const payRun = account.payRuns.find(item => item.id === payRunId)
+    if (!payRun) throw Object.assign(new Error('Pay run not found.'), { status: 404 })
+    if (payRun.status !== 'unknown' || payRun.transactionHash) throw Object.assign(new Error('Only an unknown submission without a recovered transaction hash can be released.'), { status: 409 })
+    if (cleanText(confirmation, 64) !== 'NO TRANSACTION IN READY') throw Object.assign(new Error('Type NO TRANSACTION IN READY after checking Ready activity.'), { status: 400 })
+    payRun.status = 'failed'
+    payRun.items = payRun.items.map(item => ({ ...item, status: 'failed' }))
+    payRun.finalityCheckedAt = new Date().toISOString()
+    payRun.finalityMessage = 'The account owner confirmed after fresh authentication that Ready showed no submitted transaction. A new payroll may now be prepared.'
+    payRun.updatedAt = payRun.finalityCheckedAt
     account.updatedAt = payRun.updatedAt
     return payRun
   })

@@ -47,9 +47,46 @@ test('enforces pay-run preparation before submission and locks submitted records
     /cannot move directly/,
   )
   await store.updatePayRun(owner, run.id, { status: 'prepared' })
+  await store.updatePayRun(owner, run.id, { status: 'submitting' })
   const submitted = await store.updatePayRun(owner, run.id, { status: 'submitted', transactionHash: '0x123' })
   assert.equal(submitted.status, 'submitted')
-  await assert.rejects(store.updatePayRun(owner, run.id, { status: 'failed' }), /cannot be changed/)
+  const finalized = await store.recordPayRunFinality(owner, run.id, { status: 'finalized', acceptedBlockNumber: 1234, message: 'Verified pool receipt.' })
+  assert.equal(finalized.acceptedBlockNumber, 1234)
+  await assert.rejects(store.updatePayRun(owner, run.id, { status: 'failed' }), /cannot move directly/)
+  await assert.rejects(store.recordPayRunFinality(owner, run.id, { status: 'unknown', message: 'No downgrade.' }), /cannot be recorded/)
+})
+
+test('keeps unknown wallet outcomes recoverable while preventing reused transaction hashes', async () => {
+  const team = await store.createTeam(owner, { name: 'Late wallet recovery' })
+  const firstWorker = await store.addWorker(owner, team.id, { name: 'First Worker', walletAddress: '0x1111', defaultAmountUsdc: '1' })
+  const secondWorker = await store.addWorker(owner, team.id, { name: 'Second Worker', walletAddress: '0x2222', defaultAmountUsdc: '1' })
+  const first = await store.createPayRun(owner, { teamId: team.id, items: [{ workerId: firstWorker.id, amountUsdc: '1' }] })
+  const second = await store.createPayRun(owner, { teamId: team.id, items: [{ workerId: secondWorker.id, amountUsdc: '1' }] })
+  await store.updatePayRun(owner, first.id, { status: 'prepared' })
+  await store.updatePayRun(owner, first.id, { status: 'submitting' })
+  await store.updatePayRun(owner, first.id, { status: 'unknown' })
+  assert.equal((await store.updatePayRun(owner, first.id, { status: 'submitted', transactionHash: '0x456' })).status, 'submitted')
+  await store.recordPayRunFinality(owner, first.id, { status: 'unknown', message: 'Receipt is not final yet.' })
+  assert.equal((await store.updatePayRun(owner, first.id, { status: 'unknown', transactionHash: '0x456' })).transactionHash, '0x456')
+  await assert.rejects(store.updatePayRun(owner, first.id, { status: 'submitted', transactionHash: '0x457' }), /cannot change its recovered transaction hash/)
+  await store.updatePayRun(owner, second.id, { status: 'prepared' })
+  await store.updatePayRun(owner, second.id, { status: 'submitting' })
+  await assert.rejects(store.updatePayRun(owner, second.id, { status: 'submitted', transactionHash: '0x456' }), /already attached/)
+  await store.updatePayRun(owner, second.id, { status: 'failed' })
+})
+
+test('blocks new payroll while an outcome is unknown and requires explicit recovery confirmation', async () => {
+  const address = '0x5151'
+  const team = await store.createTeam(address, { name: 'Recovery lock team' })
+  const worker = await store.addWorker(address, team.id, { name: 'Recovery Worker', walletAddress: '0x6161', defaultAmountUsdc: '1' })
+  const run = await store.createPayRun(address, { teamId: team.id, items: [{ workerId: worker.id, amountUsdc: '1' }] })
+  await store.updatePayRun(address, run.id, { status: 'prepared' })
+  await store.updatePayRun(address, run.id, { status: 'submitting' })
+  await store.updatePayRun(address, run.id, { status: 'unknown' })
+  await assert.rejects(store.createPayRun(address, { teamId: team.id, items: [{ workerId: worker.id, amountUsdc: '1' }] }), /Resolve the existing unknown/)
+  await assert.rejects(store.resolveUnknownPayRun(address, run.id, 'NO'), /NO TRANSACTION IN READY/)
+  assert.equal((await store.resolveUnknownPayRun(address, run.id, 'NO TRANSACTION IN READY')).status, 'failed')
+  assert.equal((await store.createPayRun(address, { teamId: team.id, items: [{ workerId: worker.id, amountUsdc: '1' }] })).status, 'draft')
 })
 
 test('persists a business profile and deletes only the wallet account record', async () => {

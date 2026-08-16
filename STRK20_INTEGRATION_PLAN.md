@@ -34,6 +34,8 @@ No Cairo contract, self-hosted prover, direct Privacy SDK integration, sub-accou
 
 **Decision 2026-08-16:** the public product will move from an extension-first dapp to a wallet/infra product using the direct Privacy SDK browser surface. Ready X remains an internal Mainnet certification and recovery harness until the embedded route independently passes registration, note discovery, balance, shield, atomic transfer, and withdrawal checks; it is not the intended customer journey.
 
+**Delivery order 2026-08-16:** finish and certify the Ready-backed shield, atomic payroll, and intentional withdrawal evidence first, while preserving the extensionless embedded wallet as the committed product route. This prevents SDK packaging or custody work from blocking the three Mainnet transactions judges require.
+
 Security boundary:
 
 - Signer and viewing keys are generated and decrypted only in an isolated browser worker; KudiRoll servers never receive plaintext wallet secrets.
@@ -132,9 +134,9 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Manual check:** shield a minimal Mainnet amount, capture the successful hash, verify finality, wait for maturity, and confirm payroll remains disabled until ready. This mainnet action requires explicit confirmation at execution time.
 
-## 10. Phase 3 — atomic private payroll
+## 10. Phase 3 — atomic private payroll — implementation candidate 2026-08-16
 
-**Status:** planned.
+**Status:** atomic action construction, immutable snapshots, durable submitting/unknown/submitted/finalized states, late wallet-hash recovery, duplicate-recipient/hash rejection, unresolved-submission locking, fresh-passkey retry release, and server receipt/pool-event verification are implemented. The canonical Mainnet pool address is verified against the sprint's Day 0 guide and transaction verifier; completion still requires one manually certified Mainnet batch paying at least two Ready-registered recipients.
 
 1. Migrate `src/App.tsx:767-800` and `src/App.tsx:876-877` to the typed wallet service while preserving one immutable pay-run snapshot and the `PAY TEAM` confirmation.
 2. Validate every recipient address, normalize felts with numeric equality, and reject duplicates or zero/invalid amounts before asking the wallet to prepare.
@@ -231,7 +233,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - Wallet API stable is 0.10.3; 0.10.4 remains prerelease and is out of scope.
 - The current WalletAccount guide names Ready and Xverse as STRK20-capable; Ready remains the first hands-on certification target until both are manually verified.
 - Read the pool fee at build/run time; never promise a historical fee.
-- Confirm the canonical pool address through more than one official source before recording evidence because the configured Voyager page was unreachable during freshness checking.
+- Canonical Mainnet pool address verified 2026-08-16 in two official sprint sources: `docs/MAINNET-DAY-0.md` and the `POOL_ADDRESS` used by `scripts/build-projects.mjs` to score transaction receipts.
 - Confirm Paycrest Starknet aggregator support and the full live lifecycle before enabling orders; documentation and API behavior may differ during rollout.
 - Wallet-route private sub-accounts and the newly observed `shadow_account_anonymizer` package are out of sprint scope unless stable wallet support ships and the core is already certified.
 - Ready appearing in the older public test dapp but not KudiRoll was traced to KudiRoll's one-shot injected-wallet scan and default EIP-6963 virtual-wallet noise; the 2026-08-16 remediation still requires confirmation in the owner's Ready-enabled browser.
@@ -239,6 +241,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - WebAuthn PRF is not a recovery mechanism: do not generate embedded-wallet secrets until KudiRoll supports at least one separately authorized recovery credential and a tested credential-revocation ceremony.
 - E2 preflight reconfirmed official SDK `0.14.3-rc.5`, Node.js 24+, and the explicit `./browser` export. RC.5 renamed the former sub-account surface and package to shadow accounts; KudiRoll does not depend on that experimental path in E2.
 - GitHub Packages returned `401 Unauthorized` without authentication and the official RC.5 release contains no downloadable package asset. Resume E2 only after a dedicated read-only Packages token is supplied to local npm, CI, and Railway without committing it or repurposing an existing developer token.
+- Phase 3 finalization remains `unknown` unless `STRK20_POOL_ADDRESS` is configured and the successful receipt contains an event from that exact address; receipt success alone is not proof that payroll touched STRK20.
 
 ## 18. Links
 

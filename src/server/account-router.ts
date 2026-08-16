@@ -3,9 +3,10 @@ import { Router } from 'express'
 import { RpcProvider, constants } from 'starknet'
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON, WebAuthnCredential } from '@simplewebauthn/server'
-import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, findPasskey, getAccount, getEncryptedWalletBackup, markBusinessEmailVerified, publicAccount, recordTreasuryShield, removePasskey, removeWorker, saveEncryptedWalletBackup, savePasskey, updateBusinessProfile, updatePasskeyCounter, updatePayRun, updateTeam } from './account-store'
+import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, findPasskey, getAccount, getEncryptedWalletBackup, markBusinessEmailVerified, publicAccount, recordPayRunFinality, recordTreasuryShield, removePasskey, removeWorker, resolveUnknownPayRun, saveEncryptedWalletBackup, savePasskey, updateBusinessProfile, updatePasskeyCounter, updatePayRun, updateTeam } from './account-store'
 import { consumeAuthChallenge, createAuthSession, deleteAuthSession, deleteAuthSessionsForAddress, deleteAuthSessionsForCredential, getAuthSession, saveAuthChallenge } from './auth-store'
 import { deriveTreasuryReadiness } from '../treasury-readiness'
+import { receiptTouchesPool } from '../pay-run-finality'
 
 const rateWindows = new Map<string, { count: number; resetAt: number }>()
 
@@ -143,6 +144,11 @@ function provider() {
   return nodeUrl
     ? new RpcProvider({ nodeUrl })
     : new RpcProvider({ nodeUrl: constants.NetworkName.SN_MAIN })
+}
+
+function configuredPoolAddress() {
+  const value = process.env.STRK20_POOL_ADDRESS?.trim().toLowerCase() || ''
+  return /^0x[0-9a-f]{1,64}$/.test(value) ? value : ''
 }
 
 async function treasuryReadiness(address: string) {
@@ -477,6 +483,48 @@ export function createAccountRouter() {
   router.post('/pay-runs', async (req, res) => {
     try { res.status(201).json({ ok: true, payRun: await createPayRun(await requireSessionAddress(req), req.body) }) }
     catch (error) { res.status(statusOf(error)).json({ ok: false, error: messageOf(error) }) }
+  })
+  router.post('/pay-runs/:payRunId/verify', rateLimit('pay-run-finality', 30, 5 * 60 * 1000), async (req, res) => {
+    try {
+      const address = await requireSessionAddress(req)
+      const account = await getAccount(address)
+      const payRun = account.payRuns.find(item => item.id === req.params.payRunId)
+      if (!payRun) throw Object.assign(new Error('Pay run not found.'), { status: 404 })
+      if (!payRun.transactionHash) throw Object.assign(new Error('This pay run has no transaction hash to verify.'), { status: 409 })
+      const receipt = await provider().getTransactionReceipt(payRun.transactionHash)
+      const value = receipt.value as { block_number?: number; events?: { from_address?: string }[] }
+      if (receipt.isError()) {
+        const updated = await recordPayRunFinality(address, payRun.id, { status: 'unknown', acceptedBlockNumber: value.block_number, message: 'Starknet returned an unreadable receipt. KudiRoll has not finalized this payroll.' })
+        return res.json({ ok: true, payRun: updated })
+      }
+      if (receipt.isReverted()) {
+        const updated = await recordPayRunFinality(address, payRun.id, { status: 'reverted', acceptedBlockNumber: value.block_number, message: 'Starknet reports that this private payroll transaction reverted.' })
+        return res.json({ ok: true, payRun: updated })
+      }
+      const poolAddress = configuredPoolAddress()
+      if (!poolAddress) {
+        const updated = await recordPayRunFinality(address, payRun.id, { status: 'unknown', acceptedBlockNumber: value.block_number, message: 'The receipt succeeded, but STRK20_POOL_ADDRESS is not configured, so KudiRoll cannot verify that it touched the canonical pool.' })
+        return res.json({ ok: true, payRun: updated })
+      }
+      const touchedPool = receiptTouchesPool(value.events || [], poolAddress)
+      const updated = await recordPayRunFinality(address, payRun.id, touchedPool
+        ? { status: 'finalized', acceptedBlockNumber: value.block_number, message: 'Starknet finalized this transaction and its receipt contains an event from the configured STRK20 pool.' }
+        : { status: 'unknown', acceptedBlockNumber: value.block_number, message: 'The transaction succeeded, but its receipt does not prove interaction with the configured STRK20 pool.' })
+      res.json({ ok: true, payRun: updated })
+    } catch (error: any) {
+      const message = String(error?.message || error)
+      if (/not found|transaction hash not found|code.?29/i.test(message)) return res.json({ ok: true, pending: true, message: 'The transaction is not available from Starknet yet. Check again shortly.' })
+      res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
+    }
+  })
+  router.post('/pay-runs/:payRunId/resolve-unknown', rateLimit('pay-run-resolve-unknown', 5, 15 * 60 * 1000), async (req, res) => {
+    try {
+      const { session } = await requireRecentSession(req, 'passkey')
+      const payRun = await resolveUnknownPayRun(session.address, req.params.payRunId, req.body?.confirmation)
+      res.json({ ok: true, payRun })
+    } catch (error) {
+      res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
+    }
   })
   router.patch('/pay-runs/:payRunId', async (req, res) => {
     try { res.json({ ok: true, payRun: await updatePayRun(await requireSessionAddress(req), req.params.payRunId, req.body) }) }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildDepositAction, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, KUDIROLL_MIN_SHIELD_USDC, normalizeStarknetAddress, requireStarknetMainnet, simulateUsdcShield, supportsStrk20Api, toUsdcBaseUnits, withTimeout } from '../src/phase0'
+import { buildDepositAction, buildPrivatePayrollActions, buildPrivateTransferAction, buildWithdrawAction, isStarknetAddress, isStarknetMainnet, KUDIROLL_MIN_SHIELD_USDC, normalizeStarknetAddress, requireStarknetMainnet, simulatePrivatePayroll, simulateUsdcShield, supportsStrk20Api, toUsdcBaseUnits, withTimeout } from '../src/phase0'
 import {
   STARKNET_USDC,
   createPhase0PaycrestOrder,
@@ -81,6 +81,21 @@ test('builds the exact STRK20 private payroll transfer action', () => {
   assert.deepEqual(buildPrivateTransferAction('0x456', '2.5'), {
     type: 'transfer', token: STARKNET_USDC, amount: '0x2625a0', recipient: '0x456',
   })
+})
+
+test('prepares every recipient as one atomic private payroll action list', async () => {
+  const calls: unknown[] = []
+  const wallet = {
+    strk20Balances: async () => [],
+    strk20PrepareInvoke: async (actions: unknown, simulate?: boolean) => { calls.push({ actions, simulate }); return {} as never },
+    strk20InvokeTransaction: async () => ({ transaction_hash: '0x1' }),
+  }
+  await simulatePrivatePayroll(wallet as never, [{ recipient: '0x1', amountUsdc: '1' }, { recipient: '0x2', amountUsdc: '2' }])
+  assert.deepEqual(calls, [{ actions: [
+    { type: 'transfer', token: STARKNET_USDC, amount: '0xf4240', recipient: '0x1' },
+    { type: 'transfer', token: STARKNET_USDC, amount: '0x1e8480', recipient: '0x2' },
+  ], simulate: true }])
+  assert.throws(() => buildPrivatePayrollActions([{ recipient: '0x01', amountUsdc: '1' }, { recipient: '0x1', amountUsdc: '2' }]), /only once/)
 })
 
 test('public Paycrest probe verifies live response shapes without secrets', async () => {
