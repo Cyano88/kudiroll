@@ -78,3 +78,41 @@ test('persists only public shield evidence and deduplicates a transaction hash',
   assert.equal(account.treasuryShields.length, 1)
   assert.deepEqual(Object.keys(account.treasuryShields[0]).sort(), ['amountUsdc', 'submittedAt', 'transactionHash'])
 })
+
+test('stores passkey public credentials without exposing verification material in account views', async () => {
+  const address = '0xdef'
+  await store.savePasskey(address, {
+    credentialId: 'credential_123',
+    publicKey: 'public_key_123',
+    counter: 4,
+    transports: ['internal'],
+    deviceType: 'multiDevice',
+    backedUp: true,
+  })
+  const match = await store.findPasskey('credential_123')
+  assert.equal(match?.walletAddress, address)
+  assert.equal(match?.passkey.publicKey, 'public_key_123')
+  const view = store.publicAccount(await store.getAccount(address))
+  assert.equal(view.passkeys[0].backedUp, true)
+  assert.equal('publicKey' in view.passkeys[0], false)
+  await store.updatePasskeyCounter(address, 'credential_123', 5)
+  await assert.rejects(store.updatePasskeyCounter(address, 'credential_123', 4), /rollback/)
+  await assert.rejects(store.savePasskey('0xbeef', { credentialId: 'credential_123', publicKey: 'other_key', counter: 0 }), /another KudiRoll account/)
+})
+
+test('persists only a validated encrypted wallet envelope', async () => {
+  const address = '0xcafe'
+  const metadata = await store.saveEncryptedWalletBackup(address, {
+    version: 1,
+    kdf: 'HKDF-SHA-256',
+    cipher: 'AES-256-GCM',
+    salt: 'salt_123',
+    iv: 'iv_123',
+    ciphertext: 'ciphertext_123',
+  })
+  assert.equal(metadata.available, true)
+  const backup = await store.getEncryptedWalletBackup(address)
+  assert.equal(backup?.ciphertext, 'ciphertext_123')
+  assert.deepEqual(Object.keys(store.publicAccount(await store.getAccount(address)).encryptedWalletBackup || {}).sort(), ['available', 'updatedAt'])
+  await assert.rejects(store.saveEncryptedWalletBackup(address, { version: 1, kdf: 'password', cipher: 'AES-256-GCM' }), /unsupported/)
+})

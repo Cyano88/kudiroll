@@ -51,7 +51,28 @@ export type BusinessProfile = {
   updatedAt: string
 }
 
-type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; createdAt: string; updatedAt: string }
+export type SavedPasskey = {
+  credentialId: string
+  publicKey: string
+  counter: number
+  transports: string[]
+  deviceType: 'singleDevice' | 'multiDevice'
+  backedUp: boolean
+  createdAt: string
+  lastUsedAt: string
+}
+
+export type EncryptedWalletBackup = {
+  version: 1
+  kdf: 'HKDF-SHA-256'
+  cipher: 'AES-256-GCM'
+  salt: string
+  iv: string
+  ciphertext: string
+  updatedAt: string
+}
+
+type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
 type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
@@ -114,10 +135,104 @@ async function mutate<T>(operation: (store: StoreFile) => T | Promise<T>) {
 function accountIn(store: StoreFile, address: string) {
   const key = walletAddress(address)
   const now = new Date().toISOString()
-  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], treasuryShields: [], createdAt: now, updatedAt: now })
+  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], treasuryShields: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
   account.profile ??= emptyProfile()
   account.treasuryShields ??= []
+  account.passkeys ??= []
+  account.encryptedWalletBackup ??= null
   return account
+}
+
+function base64Url(value: unknown, label: string, maximum = 4096) {
+  const text = cleanText(value, maximum)
+  if (!text || !/^[A-Za-z0-9_-]+$/.test(text)) throw Object.assign(new Error(`${label} is malformed.`), { status: 400 })
+  return text
+}
+
+export function publicAccount(account: AccountRecord) {
+  return {
+    walletAddress: account.walletAddress,
+    profile: account.profile,
+    teams: account.teams,
+    payRuns: account.payRuns,
+    treasuryShields: account.treasuryShields,
+    passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, createdAt, lastUsedAt })),
+    encryptedWalletBackup: account.encryptedWalletBackup ? { available: true, updatedAt: account.encryptedWalletBackup.updatedAt } : null,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  }
+}
+
+export async function savePasskey(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const credentialId = base64Url(input?.credentialId, 'Passkey credential ID', 1024)
+    if (Object.values(store.accounts).some(candidate => candidate.walletAddress !== account.walletAddress && candidate.passkeys?.some(passkey => passkey.credentialId === credentialId))) {
+      throw Object.assign(new Error('This passkey is already linked to another KudiRoll account.'), { status: 409 })
+    }
+    if (account.passkeys.some(passkey => passkey.credentialId === credentialId)) throw Object.assign(new Error('This passkey is already linked to this account.'), { status: 409 })
+    const deviceType = input?.deviceType === 'multiDevice' ? 'multiDevice' : 'singleDevice'
+    const now = new Date().toISOString()
+    const passkey: SavedPasskey = {
+      credentialId,
+      publicKey: base64Url(input?.publicKey, 'Passkey public key'),
+      counter: Number.isSafeInteger(input?.counter) && input.counter >= 0 ? input.counter : 0,
+      transports: Array.isArray(input?.transports) ? input.transports.map((value: unknown) => cleanText(value, 32)).filter(Boolean).slice(0, 8) : [],
+      deviceType,
+      backedUp: input?.backedUp === true,
+      createdAt: now,
+      lastUsedAt: '',
+    }
+    account.passkeys.push(passkey)
+    account.updatedAt = now
+    return passkey
+  })
+}
+
+export async function findPasskey(credentialId: string) {
+  const id = base64Url(credentialId, 'Passkey credential ID', 1024)
+  const store = await readStore()
+  for (const account of Object.values(store.accounts)) {
+    const passkey = account.passkeys?.find(candidate => candidate.credentialId === id)
+    if (passkey) return { walletAddress: account.walletAddress, passkey }
+  }
+  return null
+}
+
+export async function updatePasskeyCounter(address: string, credentialId: string, counter: number) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const passkey = account.passkeys.find(candidate => candidate.credentialId === credentialId)
+    if (!passkey) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
+    if (!Number.isSafeInteger(counter) || counter < passkey.counter) throw Object.assign(new Error('Passkey counter rollback rejected.'), { status: 409 })
+    passkey.counter = counter
+    passkey.lastUsedAt = new Date().toISOString()
+    account.updatedAt = passkey.lastUsedAt
+    return passkey
+  })
+}
+
+export async function saveEncryptedWalletBackup(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    if (input?.version !== 1 || input?.kdf !== 'HKDF-SHA-256' || input?.cipher !== 'AES-256-GCM') throw Object.assign(new Error('This encrypted wallet vault version is unsupported.'), { status: 400 })
+    const now = new Date().toISOString()
+    account.encryptedWalletBackup = {
+      version: 1,
+      kdf: 'HKDF-SHA-256',
+      cipher: 'AES-256-GCM',
+      salt: base64Url(input?.salt, 'Vault salt', 128),
+      iv: base64Url(input?.iv, 'Vault IV', 128),
+      ciphertext: base64Url(input?.ciphertext, 'Vault ciphertext', 16384),
+      updatedAt: now,
+    }
+    account.updatedAt = now
+    return { available: true, updatedAt: now }
+  })
+}
+
+export async function getEncryptedWalletBackup(address: string) {
+  return (await getAccount(address)).encryptedWalletBackup
 }
 
 export async function recordTreasuryShield(address: string, input: any) {

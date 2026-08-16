@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import { createStore } from '@starknet-io/get-starknet-discovery'
 import type { WalletWithStarknetFeatures } from '@starknet-io/get-starknet-wallet-standard/features'
 import { constants, WalletAccountV6, walletV6 } from 'starknet'
@@ -65,7 +66,7 @@ type SavedTeam = { id: string; name: string; description: string; workers: Saved
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; createdAt: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; createdAt: string; lastUsedAt: string }[]; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -319,6 +320,36 @@ export function App() {
     }
   }
 
+  async function signInWithPasskey() {
+    try {
+      setBusy('passkey-signin')
+      const request = await accountJson('/api/account/passkeys/authentication/options', { method: 'POST' })
+      const response = await startAuthentication({ optionsJSON: request.options })
+      const session = await accountJson('/api/account/passkeys/authentication/verify', { method: 'POST', body: JSON.stringify({ response }) })
+      setAccountData(session.account)
+      setEnteredApp(true)
+    } catch (error) {
+      alert(`Could not sign in with this passkey. ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function registerPasskey() {
+    try {
+      setBusy('passkey-register')
+      const request = await accountJson('/api/account/passkeys/registration/options', { method: 'POST' })
+      const response = await startRegistration({ optionsJSON: request.options })
+      const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response }) })
+      setAccountData(result.account)
+      alert('Passkey created. You can use it on the KudiRoll sign-in screen without opening a wallet extension.')
+    } catch (error) {
+      alert(`Could not create the passkey. ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
   async function accountJson(path: string, init: RequestInit = {}) {
     const response = await fetch(path, {
       ...init,
@@ -563,6 +594,7 @@ export function App() {
       busy={busy === 'wallet' || busy === 'account'}
       wallets={walletChoices}
       legalView={legalView}
+      onPasskeySignIn={signInWithPasskey}
       onRefreshWallets={() => walletStore._refreshInjectedWallets()}
       onSignIn={signIn}
       onOpenLegal={setLegalView}
@@ -642,6 +674,7 @@ export function App() {
     onReadBalance={checkBalance}
     onDisconnect={leaveWallet}
     onDeleteAccount={deleteKudiRollAccount}
+    onRegisterPasskey={registerPasskey}
     onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
   />
 }
@@ -651,6 +684,7 @@ function SignInLanding({
   busy,
   wallets,
   legalView,
+  onPasskeySignIn,
   onRefreshWallets,
   onSignIn,
   onOpenLegal,
@@ -661,6 +695,7 @@ function SignInLanding({
   busy: boolean
   wallets: WalletWithStarknetFeatures[]
   legalView: 'terms' | 'privacy' | null
+  onPasskeySignIn: () => void
   onRefreshWallets: () => void
   onSignIn: (wallet?: WalletWithStarknetFeatures) => void
   onOpenLegal: (view: 'terms' | 'privacy') => void
@@ -694,10 +729,11 @@ function SignInLanding({
       <section className="signInCard" aria-labelledby="sign-in-title">
         <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
         <h1 id="sign-in-title">Sign in to continue</h1>
-        <p className="signInBody">Connect the wallet you use for private payroll.</p>
+        <p className="signInBody">Use your device passkey. No wallet extension is required after one-time account setup.</p>
 
-        {wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Continue with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}
-        <p className="signInHint">Ready X is required for STRK20 private payroll. Other Starknet wallets can still manage a KudiRoll account.</p>
+        <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span><i aria-hidden="true">→</i></button>
+        <details className="walletMigration"><summary>First time? Link an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>
+        <p className="signInHint">Existing users connect once, then create a passkey in Business profile. Ready X remains a temporary STRK20 migration tool.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
@@ -739,6 +775,7 @@ function ProductShell({
   onReadBalance,
   onDisconnect,
   onDeleteAccount,
+  onRegisterPasskey,
   onToggleTheme,
 }: {
   theme: Theme
@@ -764,6 +801,7 @@ function ProductShell({
   onReadBalance: () => void
   onDisconnect: () => void
   onDeleteAccount: (confirmation: string) => Promise<any>
+  onRegisterPasskey: () => void
   onToggleTheme: () => void
 }) {
   const [teamName, setTeamName] = useState('')
@@ -1056,8 +1094,13 @@ function ProductShell({
           {profileNotice && <div className="profileNotice">{profileNotice}</div>}
         </section>
         <section className="panel accountScope">
+          <div className="panelTitle"><div><span>Extension-free access</span><h3>KudiRoll passkey</h3></div><span className={`statePill ${accountData?.passkeys.length ? 'safe' : 'neutral'}`}>{accountData?.passkeys.length ? 'Active' : 'Not set up'}</span></div>
+          <p className="passkeyCopy">A passkey lets this KudiRoll account sign in with your device security instead of reopening a browser wallet. Wallet creation and fund recovery are not enabled yet.</p>
+          <button onClick={onRegisterPasskey} disabled={Boolean(accountAction) || busy === 'passkey-register'}>{busy === 'passkey-register' ? 'Creating passkey…' : accountData?.passkeys.length ? 'Add another passkey' : 'Create passkey'}</button>
+        </section>
+        <section className="panel accountScope">
           <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div></div>
-          <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Not held by KudiRoll</strong><span>Wallet keys, viewing keys, proofs, OTPs, recovery phrases, and bank details.</span></div></div>
+          <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Security boundary</strong><span>KudiRoll stores passkey public credentials only. Plaintext wallet keys, viewing keys, proofs, and recovery secrets never reach the server.</span></div></div>
         </section>
         <section className="panel dangerZone">
           <div><span>Permanent action</span><h3>Delete KudiRoll account</h3><p>This permanently removes this business profile, saved teams, workers, and pay-run records from KudiRoll. It does not delete your Starknet wallet, onchain transactions, or records retained independently by Paycrest.</p></div>

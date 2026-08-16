@@ -107,6 +107,9 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .signInPrimary:hover { background: #182516; }
 .walletChoices { display: grid; gap: 9px; margin-top: 28px; }
 .walletChoices .signInPrimary { margin-top: 0; }
+.walletMigration { margin-top: 12px; border: 1px solid #d9ddd5; border-radius: 8px; padding: 12px; }
+.walletMigration summary { cursor: pointer; color: #566052; font-size: .68rem; font-weight: 800; text-align: center; }
+.walletMigration .walletChoices, .walletMigration .walletMissing { margin-top: 12px; }
 .walletInstall { display: grid; place-items: center; min-height: 54px; margin-top: 28px; border-radius: 8px; color: #fff; background: #22301f; font-size: .76rem; font-weight: 800; text-decoration: none; }
 .walletMissing { display: grid; gap: 9px; margin-top: 28px; text-align: center; }
 .walletMissing .walletInstall { width: 100%; margin-top: 0; }
@@ -331,6 +334,7 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .optionalLabel { color: #999f98; font-size: .6rem; font-weight: 500; }
 .profileNotice { margin-top: 14px; border-left: 3px solid #6c8c61; padding: 9px 11px; color: #52634c; background: #f0f4ed; font-size: .7rem; }
 .accountScope { padding: 22px; }
+.passkeyCopy { max-width: 700px; margin: 14px 0 18px; color: #737b72; font-size: .7rem; line-height: 1.6; }
 .scopeList { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 .scopeList > div { min-height: 112px; border: 1px solid #e1e6df; border-radius: 9px; padding: 16px; background: #f7f9f6; }
 .scopeList strong, .scopeList span { display: block; }
