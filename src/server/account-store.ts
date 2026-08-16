@@ -48,6 +48,7 @@ export type BusinessProfile = {
   jobTitle: string
   email: string
   phone: string
+  emailVerifiedAt: string
   updatedAt: string
 }
 
@@ -100,7 +101,7 @@ function amountUnits(value: string) {
 }
 
 function emptyProfile(): BusinessProfile {
-  return { ownerName: '', businessName: '', jobTitle: '', email: '', phone: '', updatedAt: '' }
+  return { ownerName: '', businessName: '', jobTitle: '', email: '', phone: '', emailVerifiedAt: '', updatedAt: '' }
 }
 
 async function readStore(): Promise<StoreFile> {
@@ -137,6 +138,7 @@ function accountIn(store: StoreFile, address: string) {
   const now = new Date().toISOString()
   const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], treasuryShields: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
   account.profile ??= emptyProfile()
+  account.profile.emailVerifiedAt ??= ''
   account.treasuryShields ??= []
   account.passkeys ??= []
   account.encryptedWalletBackup ??= null
@@ -157,6 +159,7 @@ export function publicAccount(account: AccountRecord) {
     payRuns: account.payRuns,
     treasuryShields: account.treasuryShields,
     passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, createdAt, lastUsedAt })),
+    recoveryReady: account.passkeys.length >= 2,
     encryptedWalletBackup: account.encryptedWalletBackup ? { available: true, updatedAt: account.encryptedWalletBackup.updatedAt } : null,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
@@ -209,6 +212,18 @@ export async function updatePasskeyCounter(address: string, credentialId: string
     passkey.lastUsedAt = new Date().toISOString()
     account.updatedAt = passkey.lastUsedAt
     return passkey
+  })
+}
+
+export async function removePasskey(address: string, credentialId: string) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const index = account.passkeys.findIndex(candidate => candidate.credentialId === base64Url(credentialId, 'Passkey credential ID', 1024))
+    if (index < 0) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
+    if (account.passkeys.length <= 2) throw Object.assign(new Error('Add a third passkey before revoking one; KudiRoll keeps two recovery credentials available.'), { status: 409 })
+    const [removed] = account.passkeys.splice(index, 1)
+    account.updatedAt = new Date().toISOString()
+    return { credentialId: removed.credentialId }
   })
 }
 
@@ -268,8 +283,21 @@ export async function updateBusinessProfile(address: string, input: any) {
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw Object.assign(new Error('Enter a valid business email address.'), { status: 400 })
     if (phone && !/^\+?[0-9 ()-]{7,24}$/.test(phone)) throw Object.assign(new Error('Enter a valid phone number.'), { status: 400 })
     const now = new Date().toISOString()
-    account.profile = { ownerName, businessName, jobTitle, email, phone, updatedAt: now }
+    const emailVerifiedAt = email === account.profile.email ? account.profile.emailVerifiedAt : ''
+    account.profile = { ownerName, businessName, jobTitle, email, phone, emailVerifiedAt, updatedAt: now }
     account.updatedAt = now
+    return account.profile
+  })
+}
+
+export async function markBusinessEmailVerified(address: string, email: string) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const candidate = cleanText(email, 160).toLowerCase()
+    if (!candidate || candidate !== account.profile.email) throw Object.assign(new Error('The verification email no longer matches this business profile.'), { status: 409 })
+    account.profile.emailVerifiedAt = new Date().toISOString()
+    account.profile.updatedAt = account.profile.emailVerifiedAt
+    account.updatedAt = account.profile.emailVerifiedAt
     return account.profile
   })
 }

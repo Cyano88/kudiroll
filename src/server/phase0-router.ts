@@ -36,7 +36,7 @@ export function createPhase0Router() {
   })
   router.get('/paycrest/institutions', async (_req, res) => {
     try {
-      requireSessionAddress(_req)
+      await requireSessionAddress(_req)
       res.json({ ok: true, institutions: await listPaycrestInstitutions() })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
@@ -44,7 +44,7 @@ export function createPhase0Router() {
   })
   router.get('/paycrest/orders', async (req, res) => {
     try {
-      const address = requireSessionAddress(req)
+      const address = await requireSessionAddress(req)
       if (!process.env.PAYCREST_API_KEY?.trim()) return res.json({ ok: true, configured: false, orders: [] })
       res.json({ ok: true, configured: true, orders: await listPaycrestOrders(address) })
     } catch (error) {
@@ -53,7 +53,7 @@ export function createPhase0Router() {
   })
   router.post('/paycrest/verify-account', async (req, res) => {
     try {
-      requireSessionAddress(req)
+      await requireSessionAddress(req)
       const account = await verifyPaycrestAccount({
         institution: String(req.body?.institution || ''),
         accountIdentifier: String(req.body?.accountIdentifier || ''),
@@ -65,7 +65,7 @@ export function createPhase0Router() {
   })
   router.post('/paycrest/order', async (req, res) => {
     try {
-      const refundAddress = requireSessionAddress(req)
+      const refundAddress = await requireSessionAddress(req)
       res.json({ ok: true, order: await createPhase0PaycrestOrder({ ...req.body, refundAddress }) })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })

@@ -70,6 +70,15 @@ test('persists a business profile and deletes only the wallet account record', a
   assert.equal(recreated.teams.length, 0)
 })
 
+test('verifies only the saved business email and clears verification after an address change', async () => {
+  const address = '0xe11a1'
+  await assert.rejects(store.markBusinessEmailVerified(address, 'wrong@example.com'), /no longer matches/)
+  await store.updateBusinessProfile(address, { ownerName: 'Email Owner', businessName: 'Email Company', email: 'owner@example.com' })
+  assert.ok((await store.markBusinessEmailVerified(address, 'owner@example.com')).emailVerifiedAt)
+  await store.updateBusinessProfile(address, { ownerName: 'Email Owner', businessName: 'Email Company', email: 'new@example.com' })
+  assert.equal((await store.getAccount(address)).profile.emailVerifiedAt, '')
+})
+
 test('persists only public shield evidence and deduplicates a transaction hash', async () => {
   const first = await store.recordTreasuryShield(owner, { transactionHash: '0xabc123', amountUsdc: '1.25' })
   const duplicate = await store.recordTreasuryShield(owner, { transactionHash: '0xABC123', amountUsdc: '9' })
@@ -98,6 +107,15 @@ test('stores passkey public credentials without exposing verification material i
   await store.updatePasskeyCounter(address, 'credential_123', 5)
   await assert.rejects(store.updatePasskeyCounter(address, 'credential_123', 4), /rollback/)
   await assert.rejects(store.savePasskey('0xbeef', { credentialId: 'credential_123', publicKey: 'other_key', counter: 0 }), /another KudiRoll account/)
+})
+
+test('keeps two recovery passkeys after a credential revocation', async () => {
+  const address = '0xaaa'
+  for (const suffix of ['one', 'two', 'three']) await store.savePasskey(address, { credentialId: `credential_${suffix}`, publicKey: `public_${suffix}`, counter: 0 })
+  assert.equal(store.publicAccount(await store.getAccount(address)).recoveryReady, true)
+  await store.removePasskey(address, 'credential_one')
+  assert.equal((await store.getAccount(address)).passkeys.length, 2)
+  await assert.rejects(store.removePasskey(address, 'credential_two'), /Add a third passkey/)
 })
 
 test('persists only a validated encrypted wallet envelope', async () => {

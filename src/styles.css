@@ -333,8 +333,31 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .profileGrid label:last-child input { color: #777f78; background: #f1f3ef; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; }
 .optionalLabel { color: #999f98; font-size: .6rem; font-weight: 500; }
 .profileNotice { margin-top: 14px; border-left: 3px solid #6c8c61; padding: 9px 11px; color: #52634c; background: #f0f4ed; font-size: .7rem; }
+.emailVerification { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; border-top: 1px solid #e1e6df; padding-top: 16px; }
+.emailVerification strong, .emailVerification span { display: block; }
+.emailVerification strong { font-size: .72rem; }
+.emailVerification span { margin-top: 4px; color: #858b82; font-size: .64rem; }
+.emailVerificationActions { display: flex; align-items: center; gap: 8px; }
+.emailVerificationActions input { width: 132px; }
 .accountScope { padding: 22px; }
 .passkeyCopy { max-width: 700px; margin: 14px 0 18px; color: #737b72; font-size: .7rem; line-height: 1.6; }
+.recoveryChecks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.recoveryChecks > div { border: 1px solid #e1e6df; border-radius: 9px; padding: 14px; background: #f7f9f6; }
+.recoveryChecks strong, .recoveryChecks span { display: block; }
+.recoveryChecks strong { font-size: .72rem; }
+.recoveryChecks span { margin-top: 7px; color: #838a82; font-size: .66rem; line-height: 1.5; }
+.passkeyList { display: grid; gap: 8px; margin-top: 16px; }
+.passkeyList > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid #e3e7e1; padding-top: 12px; }
+.passkeyList span, .passkeyList strong, .passkeyList small { display: block; }
+.passkeyList strong { font-size: .72rem; }
+.passkeyList small { margin-top: 4px; color: #858b82; font-size: .62rem; }
+
+@media (max-width: 720px) {
+  .recoveryChecks { grid-template-columns: 1fr; }
+  .emailVerification, .emailVerificationActions { align-items: stretch; flex-direction: column; }
+  .emailVerificationActions input { width: 100%; }
+  .passkeyList > div { align-items: stretch; flex-direction: column; }
+}
 .scopeList { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 .scopeList > div { min-height: 112px; border: 1px solid #e1e6df; border-radius: 9px; padding: 16px; background: #f7f9f6; }
 .scopeList strong, .scopeList span { display: block; }

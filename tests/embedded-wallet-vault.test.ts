@@ -31,7 +31,7 @@ test('rejects modified vault ciphertext', async () => {
   const unlock = unlockSecret()
   const vault = await sealEmbeddedWalletVault(secrets, unlock)
   const replacement = vault.ciphertext.endsWith('A') ? 'B' : 'A'
-  await assert.rejects(openEmbeddedWalletVault({ ...vault, ciphertext: vault.ciphertext.slice(0, -1) + replacement }, unlock), /could not unlock/)
+  await assert.rejects(openEmbeddedWalletVault({ ...vault, ciphertext: vault.ciphertext.slice(0, -1) + replacement }, unlock), /could not unlock|malformed/)
 })
 
 test('rejects malformed secrets and short unlock material', async () => {

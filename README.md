@@ -2,11 +2,11 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). WalletAccountV6 discovery, typed STRK20 operations, shield approval, server-backed finality tracking, and the 10-block treasury maturity gate are implemented and tested. Mainnet certification, production database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). Passkey-first login, two-credential recovery readiness, fresh-proof passkey revocation, typed STRK20 operations, shield tracking, and the 10-block treasury maturity gate are implemented and tested. Embedded-wallet creation, Mainnet SDK certification, managed database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
-1. Connect a Wallet Standard Starknet wallet and sign a short-lived KudiRoll account challenge. Ready X and Xverse expose the STRK20 privacy route; other compatible wallets can still access the saved workspace.
+1. Sign in with a discoverable KudiRoll passkey. Existing users link a Starknet wallet once, then enroll at least two passkeys before embedded-wallet creation can become available.
 2. Create separate teams for the groups the business pays.
 3. Save each worker's name, registered Starknet address, and default private-USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
@@ -21,13 +21,15 @@ Every receiving address must first be registered with the compatible privacy wal
 
 ## Account persistence
 
-- A signed Starknet challenge creates a 12-hour HTTP-only session.
+- A wallet signature or verified passkey creates a 12-hour HTTP-only session; only a hash of the bearer token is persisted.
+- WebAuthn and wallet challenges are single-use, expire automatically, survive service restarts, and are rate limited.
+- Recovery readiness requires two passkeys. Revocation requires fresh proof from a different credential and cannot reduce the account below two passkeys.
 - Teams, workers, pay-run snapshots, and public shield references are isolated by wallet address.
 - Local development persists data atomically in `.data/kudiroll.json`; the file is ignored by Git.
-- A server restart requires a fresh wallet signature but does not erase account data.
+- A server restart preserves account sessions and unexpired authentication ceremonies on the mounted volume.
 - The Railway public alpha runs one replica with `.data` on a persistent volume. Production must replace the JSON adapter with a managed database and durable sessions before multi-instance use.
 
-KudiRoll does not request or store wallet private keys, viewing keys, notes, proofs, OTPs, or bank details. Worker names and payroll amounts are business data and therefore require production-grade database encryption, backup, retention, and access controls before public use.
+KudiRoll does not store plaintext wallet private keys, viewing keys, notes, proofs, email codes, recovery secrets, or bank details. Provider-backed email verification is identity metadata only and cannot decrypt or recover wallet funds; worker names and payroll amounts still require production-grade database encryption, backup, retention, and access controls before public use.
 
 STRK20 pool fees are calculated and displayed by the privacy wallet at approval time. KudiRoll does not hard-code or promise a historical fee. The app applies a disclosed 0.01 USDC product minimum and lets wallet simulation reject insufficient public USDC or fee allowance.
 
@@ -63,6 +65,9 @@ Open `http://127.0.0.1:4174` when `PORT=4174` is configured in `.env.local`; oth
 HOST=127.0.0.1
 STARKNET_RPC_URL=
 KUDIROLL_DATA_FILE=.data/kudiroll.json
+KUDIROLL_AUTH_FILE=.data/kudiroll-auth.json
+KUDIROLL_WEBAUTHN_ORIGIN=http://localhost:4173
+KUDIROLL_WEBAUTHN_RP_ID=localhost
 PHASE0_LIVE_ORDER_ENABLED=false
 ```
 

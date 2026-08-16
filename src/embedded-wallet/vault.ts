@@ -36,7 +36,9 @@ function decodeBase64Url(value: string) {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('The encrypted wallet vault is malformed.')
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
   const binary = atob(padded)
-  return Uint8Array.from(binary, character => character.charCodeAt(0))
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+  if (encodeBase64Url(bytes) !== value) throw new Error('The encrypted wallet vault is malformed.')
+  return bytes
 }
 
 function bufferOf(bytes: Uint8Array): ArrayBuffer {

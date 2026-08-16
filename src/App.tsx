@@ -65,8 +65,8 @@ type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmo
 type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; createdAt: string; updatedAt: string }
-type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; createdAt: string; lastUsedAt: string }[]; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -149,6 +149,7 @@ export function App() {
   const [shieldTransactionHash, setShieldTransactionHash] = useState('')
   const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(null)
   const [treasuryError, setTreasuryError] = useState('')
+  const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false)
 
   const walletAddress = wallet?.address || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
@@ -193,6 +194,11 @@ export function App() {
     }
     void loadTreasuryReadiness()
   }, [accountData?.walletAddress])
+
+  useEffect(() => {
+    if (!enteredApp) return
+    void localJson('/api/account/email/status').then(data => setEmailDeliveryConfigured(data.configured === true)).catch(() => setEmailDeliveryConfigured(false))
+  }, [enteredApp])
 
   useEffect(() => {
     if (!accountData?.walletAddress || !treasuryReadiness || !['submitted', 'maturing', 'unknown'].includes(treasuryReadiness.status)) return
@@ -345,6 +351,22 @@ export function App() {
       alert('Passkey created. You can use it on the KudiRoll sign-in screen without opening a wallet extension.')
     } catch (error) {
       alert(`Could not create the passkey. ${readableError(error)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function revokePasskey(credentialId: string) {
+    if (!window.confirm('Revoke this passkey? A different recovery passkey must approve the change.')) return
+    try {
+      setBusy('passkey-revoke')
+      const request = await accountJson('/api/account/passkeys/revocation/options', { method: 'POST', body: JSON.stringify({ credentialId }) })
+      const response = await startAuthentication({ optionsJSON: request.options })
+      const result = await accountJson('/api/account/passkeys/revocation/verify', { method: 'POST', body: JSON.stringify({ response }) })
+      setAccountData(result.account)
+      alert('Passkey revoked. Sessions created by that credential were invalidated.')
+    } catch (error) {
+      alert(`Could not revoke the passkey. ${readableError(error)}`)
     } finally {
       setBusy('')
     }
@@ -667,6 +689,7 @@ export function App() {
     shieldPanel={shieldPanel}
     treasuryReadiness={treasuryReadiness}
     accountData={accountData}
+    emailDeliveryConfigured={emailDeliveryConfigured}
     onMutateAccount={mutateAccount}
     onRefreshOrders={loadPaycrestOrders}
     onRefreshHistory={refreshHistory}
@@ -675,6 +698,7 @@ export function App() {
     onDisconnect={leaveWallet}
     onDeleteAccount={deleteKudiRollAccount}
     onRegisterPasskey={registerPasskey}
+    onRevokePasskey={revokePasskey}
     onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
   />
 }
@@ -768,6 +792,7 @@ function ProductShell({
   shieldPanel,
   treasuryReadiness,
   accountData,
+  emailDeliveryConfigured,
   onMutateAccount,
   onRefreshOrders,
   onRefreshHistory,
@@ -776,6 +801,7 @@ function ProductShell({
   onDisconnect,
   onDeleteAccount,
   onRegisterPasskey,
+  onRevokePasskey,
   onToggleTheme,
 }: {
   theme: Theme
@@ -794,6 +820,7 @@ function ProductShell({
   shieldPanel: React.ReactNode
   treasuryReadiness: TreasuryReadiness | null
   accountData: AccountData | null
+  emailDeliveryConfigured: boolean
   onMutateAccount: (path: string, init: RequestInit) => Promise<any>
   onRefreshOrders: () => void
   onRefreshHistory: () => void
@@ -802,6 +829,7 @@ function ProductShell({
   onDisconnect: () => void
   onDeleteAccount: (confirmation: string) => Promise<any>
   onRegisterPasskey: () => void
+  onRevokePasskey: (credentialId: string) => void
   onToggleTheme: () => void
 }) {
   const [teamName, setTeamName] = useState('')
@@ -816,6 +844,7 @@ function ProductShell({
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, boolean>>({})
   const [accountAction, setAccountAction] = useState('')
   const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
+  const [emailVerificationCode, setEmailVerificationCode] = useState('')
   const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
   const [batchMessage, setBatchMessage] = useState('')
   const [batchConfirmation, setBatchConfirmation] = useState('')
@@ -880,6 +909,33 @@ function ProductShell({
       setProfileNotice('Business profile saved to this wallet account.')
     } catch (error) { setProfileNotice(readableError(error)) }
     finally { setAccountAction('') }
+  }
+
+  async function requestEmailVerification() {
+    setAccountAction('email-request')
+    setProfileNotice('')
+    try {
+      await onMutateAccount('/api/account/email/verification/request', { method: 'POST' })
+      setProfileNotice('Verification code sent. It expires in 10 minutes and cannot recover wallet funds.')
+    } catch (error) {
+      setProfileNotice(readableError(error))
+    } finally {
+      setAccountAction('')
+    }
+  }
+
+  async function verifyBusinessEmail() {
+    setAccountAction('email-verify')
+    setProfileNotice('')
+    try {
+      await onMutateAccount('/api/account/email/verification/verify', { method: 'POST', body: JSON.stringify({ code: emailVerificationCode }) })
+      setEmailVerificationCode('')
+      setProfileNotice('Business email verified. Email remains an identity contact, not a wallet recovery key.')
+    } catch (error) {
+      setProfileNotice(readableError(error))
+    } finally {
+      setAccountAction('')
+    }
   }
 
   async function deleteBusinessAccount() {
@@ -1091,12 +1147,15 @@ function ProductShell({
             <label>Wallet account<input value={accountData?.walletAddress || walletAddress} readOnly aria-readonly="true" /></label>
           </div>
           <div className="formFooter"><span>Profile details are stored by KudiRoll under this wallet address.</span><button onClick={saveBusinessProfile} disabled={Boolean(accountAction)}>{accountAction === 'profile' ? 'Saving…' : 'Save profile'}</button></div>
+          <div className="emailVerification"><div><strong>Business email</strong><span>{accountData?.profile.emailVerifiedAt ? `Verified ${new Date(accountData.profile.emailVerifiedAt).toLocaleDateString()}` : !accountData?.profile.email ? 'Save an email to begin verification.' : emailDeliveryConfigured ? 'Not verified' : 'Verification delivery is not configured.'}</span></div>{!accountData?.profile.emailVerifiedAt && accountData?.profile.email && emailDeliveryConfigured && <div className="emailVerificationActions"><button className="secondary" onClick={requestEmailVerification} disabled={Boolean(accountAction)}>{accountAction === 'email-request' ? 'Sending…' : 'Send code'}</button><input value={emailVerificationCode} onChange={event => setEmailVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" inputMode="numeric" autoComplete="one-time-code" /><button onClick={verifyBusinessEmail} disabled={emailVerificationCode.length !== 6 || Boolean(accountAction)}>{accountAction === 'email-verify' ? 'Verifying…' : 'Verify email'}</button></div>}</div>
           {profileNotice && <div className="profileNotice">{profileNotice}</div>}
         </section>
         <section className="panel accountScope">
-          <div className="panelTitle"><div><span>Extension-free access</span><h3>KudiRoll passkey</h3></div><span className={`statePill ${accountData?.passkeys.length ? 'safe' : 'neutral'}`}>{accountData?.passkeys.length ? 'Active' : 'Not set up'}</span></div>
-          <p className="passkeyCopy">A passkey lets this KudiRoll account sign in with your device security instead of reopening a browser wallet. Wallet creation and fund recovery are not enabled yet.</p>
-          <button onClick={onRegisterPasskey} disabled={Boolean(accountAction) || busy === 'passkey-register'}>{busy === 'passkey-register' ? 'Creating passkey…' : accountData?.passkeys.length ? 'Add another passkey' : 'Create passkey'}</button>
+          <div className="panelTitle"><div><span>Extension-free access</span><h3>Passkeys and recovery</h3></div><span className={`statePill ${accountData?.recoveryReady ? 'safe' : 'neutral'}`}>{accountData?.recoveryReady ? 'Recovery ready' : 'Setup incomplete'}</span></div>
+          <p className="passkeyCopy">KudiRoll requires two passkeys before an embedded wallet can be created. Revocation needs a different passkey and cannot reduce the account below two recovery credentials.</p>
+          <button onClick={onRegisterPasskey} disabled={Boolean(accountAction) || busy === 'passkey-register' || busy === 'passkey-revoke'}>{busy === 'passkey-register' ? 'Creating passkey…' : accountData?.passkeys.length ? 'Add recovery passkey' : 'Create passkey'}</button>
+          <div className="recoveryChecks"><div><strong>{accountData?.passkeys.length ?? 0} / 2 passkeys</strong><span>{accountData?.recoveryReady ? 'Minimum recovery credentials configured.' : 'Add passkeys on separate devices or password-manager ecosystems.'}</span></div><div><strong>{accountData?.profile.emailVerifiedAt ? 'Email identity verified' : 'Email recovery inactive'}</strong><span>Email can verify account identity, but it never decrypts or recovers wallet funds by itself.</span></div></div>
+          {!!accountData?.passkeys.length && <div className="passkeyList">{accountData.passkeys.map((passkey, index) => <div key={passkey.credentialId}><span><strong>Passkey {index + 1}</strong><small>{passkey.deviceType === 'multiDevice' ? 'Synced credential' : 'Device credential'} · added {new Date(passkey.createdAt).toLocaleDateString()} · …{passkey.credentialId.slice(-8)}</small></span><button className="quiet" onClick={() => onRevokePasskey(passkey.credentialId)} disabled={accountData.passkeys.length <= 2 || busy === 'passkey-revoke'}>{busy === 'passkey-revoke' ? 'Verifying…' : 'Revoke'}</button></div>)}</div>}
         </section>
         <section className="panel accountScope">
           <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div></div>
