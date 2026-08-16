@@ -30,6 +30,28 @@ KudiRoll is a normal dapp whose users connect their own wallets, so it will cons
 
 No Cairo contract, self-hosted prover, direct Privacy SDK integration, sub-account experiment, or private-swap feature is required for the sprint-winning core. Those additions would expand audit and delivery risk without improving the payroll journey enough to justify them.
 
+## 3A. Approved route pivot — KudiRoll Embedded Wallet
+
+**Decision 2026-08-16:** the public product will move from an extension-first dapp to a wallet/infra product using the direct Privacy SDK browser surface. Ready X remains an internal Mainnet certification and recovery harness until the embedded route independently passes registration, note discovery, balance, shield, atomic transfer, and withdrawal checks; it is not the intended customer journey.
+
+Security boundary:
+
+- Signer and viewing keys are generated and decrypted only in an isolated browser worker; KudiRoll servers never receive plaintext wallet secrets.
+- The encrypted vault uses a non-exportable key derived from a WebAuthn PRF/passkey secret. The server may store ciphertext and public account metadata only.
+- There is no password-only, localStorage-plaintext, analytics, logging, or support-export fallback for wallet secrets.
+- Hosted proving and indexed discovery are allowed, but onchain deposit screening remains enforced and neither service receives the viewing key unless the official protocol request format explicitly requires protected client-side disclosure.
+- Email identifies the KudiRoll account; a passkey authorizes wallet decryption. Recovery must preserve self-custody and is a release blocker, not a later UX task.
+
+Execution phases:
+
+1. **E0 — vault foundation ✅ done 2026-08-16:** versioned AES-256-GCM envelope, WebAuthn-PRF/HKDF unlock seam, non-exportable derived keys, tamper and wrong-passkey rejection, zero plaintext persistence, and four unit tests. The module is not connected to production UI or storage yet.
+2. **E1 — identity and recovery:** verified email, passkey registration/authentication, encrypted cross-device backup, credential revocation, and recovery ceremony.
+3. **E2 — SDK worker:** pin Privacy SDK `0.14.3-rc.5`, use its explicit browser export inside a dedicated worker, configure hosted proving/indexed discovery, and register/discover without exposing keys to React or Express.
+4. **E3 — private payroll:** shield, consented balance, atomic multi-recipient transfer, withdrawal, finality, maturity, history, and safe retry through the embedded wallet.
+5. **E4 — cutover:** hide extension discovery from the customer build only after the embedded route produces verified Mainnet evidence; retain an internal recovery/certification build behind deployment access controls.
+
+Current SDK evidence: the official RC.5 source exposes `./browser`, builds with `platform: browser`, and has a browser test suite. Its GitHub Packages distribution requires authenticated installation, so E2 must establish a reproducible CI/Railway package path without committing or repurposing a developer token.
+
 ## 4. What this delivers — hidden vs visible
 
 | Private inside STRK20 | Public onchain or at the settlement boundary |
