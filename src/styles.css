@@ -108,6 +108,9 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .walletChoices { display: grid; gap: 9px; margin-top: 28px; }
 .walletChoices .signInPrimary { margin-top: 0; }
 .walletInstall { display: grid; place-items: center; min-height: 54px; margin-top: 28px; border-radius: 8px; color: #fff; background: #22301f; font-size: .76rem; font-weight: 800; text-decoration: none; }
+.walletMissing { display: grid; gap: 9px; margin-top: 28px; text-align: center; }
+.walletMissing .walletInstall { width: 100%; margin-top: 0; }
+.walletMissing a { color: #566052; font-size: .68rem; font-weight: 800; }
 .signInHint { margin: 9px 0 0; color: #7c8378; font-size: .64rem; text-align: center; }
 .signInRule { height: 1px; margin: 23px 0 17px; background: #d9ddd5; }
 .signInConsent { margin: 0; color: #747b70; font-size: .62rem; line-height: 1.55; text-align: center; }
@@ -465,6 +468,7 @@ html[data-theme='dark'] .signInConsent { color: #929d94; }
 html[data-theme='dark'] .signInPrimary { color: #07110a; background: #48d99c; box-shadow: 0 8px 24px #0006; }
 html[data-theme='dark'] .signInPrimary:hover { background: #61e4ad; }
 html[data-theme='dark'] .walletInstall { color: #07110a; background: #48d99c; }
+html[data-theme='dark'] .walletMissing a { color: #9eaaa1; }
 html[data-theme='dark'] .signInPrimary i { color: #dff8e9; background: #173d28; }
 html[data-theme='dark'] .signInRule { background: #2b332d; }
 html[data-theme='dark'] .signInConsent button { color: #b8d9c5; background: transparent; }

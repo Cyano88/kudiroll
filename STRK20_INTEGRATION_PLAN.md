@@ -78,7 +78,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 8. Phase 1 — WalletAccountV6 foundation and first shield flow
 
-**Status:** implementation complete 2026-08-15; manual Ready/Mainnet checkpoint pending. Local typecheck, 19/19 tests, production build, zero-vulnerability audit, desktop render, mobile render, and signed-out wallet fallback checks passed. No Mainnet transaction was submitted.
+**Status:** implementation complete 2026-08-15; Ready discovery remediation added 2026-08-16; manual Ready/Mainnet checkpoint pending. KudiRoll now excludes unrelated EIP-6963 virtual wallets, retries delayed extension injection, rescans on browser return, and offers a manual Ready scan. No Mainnet transaction was submitted.
 
 1. Update `package.json` and lockfile to the exact packages in Section 6.
 2. Replace the connector use in `src/App.tsx:2` and `src/App.tsx:220-258` with get-starknet v6 discovery and a typed `WalletAccountV6` adapter.
@@ -210,6 +210,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - Confirm the canonical pool address through more than one official source before recording evidence because the configured Voyager page was unreachable during freshness checking.
 - Confirm Paycrest Starknet aggregator support and the full live lifecycle before enabling orders; documentation and API behavior may differ during rollout.
 - Wallet-route private sub-accounts and the newly observed `shadow_account_anonymizer` package are out of sprint scope unless stable wallet support ships and the core is already certified.
+- Ready appearing in the older public test dapp but not KudiRoll was traced to KudiRoll's one-shot injected-wallet scan and default EIP-6963 virtual-wallet noise; the 2026-08-16 remediation still requires confirmation in the owner's Ready-enabled browser.
 
 ## 18. Links
 

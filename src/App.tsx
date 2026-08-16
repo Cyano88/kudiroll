@@ -16,8 +16,11 @@ import {
   withTimeout,
 } from './phase0'
 import type { TreasuryReadiness, TreasuryShieldRecord } from './treasury-readiness'
+import { startInjectedWalletDiscovery } from './wallet-discovery'
 
-const walletStore = createStore()
+// Keep this picker Starknet-native. The default EIP-6963 adapter can surface
+// unrelated EVM providers that cannot run KudiRoll's STRK20 flows.
+const walletStore = createStore({ eip1193Adapters: [] })
 
 type Check = { ok: boolean; detail: string }
 type PublicProbe = {
@@ -160,8 +163,11 @@ export function App() {
     const update = (wallets: readonly WalletWithStarknetFeatures[]) => setWalletChoices([...wallets])
     update(walletStore.getWallets())
     const unsubscribe = walletStore.subscribe(update)
-    walletStore._refreshInjectedWallets()
-    return unsubscribe
+    const stopDiscovery = startInjectedWalletDiscovery(walletStore)
+    return () => {
+      stopDiscovery()
+      unsubscribe()
+    }
   }, [])
 
   useEffect(() => {
@@ -551,6 +557,7 @@ export function App() {
       busy={busy === 'wallet' || busy === 'account'}
       wallets={walletChoices}
       legalView={legalView}
+      onRefreshWallets={() => walletStore._refreshInjectedWallets()}
       onSignIn={signIn}
       onOpenLegal={setLegalView}
       onCloseLegal={() => setLegalView(null)}
@@ -636,6 +643,7 @@ function SignInLanding({
   busy,
   wallets,
   legalView,
+  onRefreshWallets,
   onSignIn,
   onOpenLegal,
   onCloseLegal,
@@ -645,6 +653,7 @@ function SignInLanding({
   busy: boolean
   wallets: WalletWithStarknetFeatures[]
   legalView: 'terms' | 'privacy' | null
+  onRefreshWallets: () => void
   onSignIn: (wallet?: WalletWithStarknetFeatures) => void
   onOpenLegal: (view: 'terms' | 'privacy') => void
   onCloseLegal: () => void
@@ -679,8 +688,8 @@ function SignInLanding({
         <h1 id="sign-in-title">Sign in to continue</h1>
         <p className="signInBody">Connect the wallet you use for private payroll.</p>
 
-        {wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Continue with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <a className="walletInstall" href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X to continue</a>}
-        <p className="signInHint">Ready X and Xverse support STRK20 privacy. Other Starknet wallets can still sign in.</p>
+        {wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Continue with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}
+        <p className="signInHint">Ready X is required for STRK20 private payroll. Other Starknet wallets can still manage a KudiRoll account.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
