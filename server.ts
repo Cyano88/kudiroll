@@ -3,9 +3,14 @@ import express from 'express'
 import { resolve } from 'node:path'
 import { createPhase0Router } from './src/server/phase0-router'
 import { createAccountRouter } from './src/server/account-router'
+import { createRailRouter } from './src/server/rail-router'
+import { databaseReadiness, persistenceConfig } from './src/server/database'
+import { bootstrapAccountStore } from './src/server/account-bootstrap'
 
 config({ path: '.env.local', quiet: true })
 config({ path: '.env', quiet: true })
+
+await bootstrapAccountStore()
 
 const app = express()
 const port = Number(process.env.PORT || 4173)
@@ -24,15 +29,22 @@ app.use((_req, res, next) => {
   next()
 })
 app.use(express.json({ limit: '32kb' }))
-app.get('/api/health', (_req, res) => res.json({
-  ok: true,
-  service: 'kudiroll',
-  network: 'starknet-mainnet',
-  persistence: process.env.KUDIROLL_DATA_FILE ? 'configured-file' : 'local-file',
-  release: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.KUDIROLL_RELEASE_SHA || 'development',
-  environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
-}))
+app.get('/api/health', async (_req, res) => {
+  const persistence = persistenceConfig()
+  const database = await databaseReadiness()
+  const databaseRequired = persistence.accountBackend === 'postgres' || persistence.authBackend === 'postgres'
+  const ready = !databaseRequired || (database.reachable && (database.schemaVersion ?? 0) >= 1)
+  res.status(ready ? 200 : 503).json({
+    ok: ready,
+    service: 'kudiroll',
+    network: 'starknet-mainnet',
+    persistence: { accounts: persistence.accountBackend, authentication: persistence.authBackend, database },
+    release: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.KUDIROLL_RELEASE_SHA || 'development',
+    environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
+  })
+})
 app.use('/api/phase0', createPhase0Router())
+app.use('/api/v1', createRailRouter())
 app.use('/api/account', createAccountRouter())
 
 if (process.env.NODE_ENV === 'production') {

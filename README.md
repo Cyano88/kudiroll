@@ -2,7 +2,9 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). Passkey-first login, two-credential recovery readiness, fresh-proof passkey revocation, typed STRK20 operations, shield tracking, and the 10-block treasury maturity gate are implemented and tested. Embedded-wallet creation, Mainnet SDK certification, managed database infrastructure, and operational controls remain in progress. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+KudiRoll is being separated into **KudiRoll Rail**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. The initial versioned API boundary is documented in [docs/API.md](docs/API.md); external developer credentials are not released yet.
+
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). Passkey-first login, two-credential recovery readiness, typed STRK20 operations, and the KudiRoll Rail API are implemented and tested. PostgreSQL schema plus durable authentication support are implemented locally, but Railway provisioning, account/payroll cutover, embedded-wallet Mainnet certification, and operational controls remain release gates. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
@@ -27,7 +29,8 @@ Every receiving address must first be registered with the compatible privacy wal
 - Teams, workers, pay-run snapshots, and public shield references are isolated by wallet address.
 - Local development persists data atomically in `.data/kudiroll.json`; the file is ignored by Git.
 - A server restart preserves account sessions and unexpired authentication ceremonies on the mounted volume.
-- The Railway public alpha runs one replica with `.data` on a persistent volume. Production must replace the JSON adapter with a managed database and durable sessions before multi-instance use.
+- The Railway public alpha runs one replica with `.data` on a persistent volume. PostgreSQL-backed hashed sessions and challenges are available behind `KUDIROLL_AUTH_BACKEND=postgres` after `npm run db:migrate`; accounts and payroll remain file-backed, so multi-instance use is still prohibited.
+- Encrypted PostgreSQL account storage and a fail-closed importer are implemented behind `KUDIROLL_ACCOUNT_BACKEND=postgres`; follow [the database cutover runbook](docs/DATABASE.md). Production activation still requires a managed database, maintenance import, backup/restore and reverse-migration drill.
 
 KudiRoll does not store plaintext wallet private keys, viewing keys, notes, proofs, email codes, recovery secrets, or bank details. Provider-backed email verification is identity metadata only and cannot decrypt or recover wallet funds; worker names and payroll amounts still require production-grade database encryption, backup, retention, and access controls before public use.
 

@@ -5,6 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
+    "preDeployCommand": "npm run db:migrate",
     "startCommand": "npm run start",
     "numReplicas": 1,
     "healthcheckPath": "/api/health",

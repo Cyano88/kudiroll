@@ -12,7 +12,9 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "probe:paycrest": "node --import tsx scripts/paycrest-public-probe.ts",
-    "start": "node --import tsx server.ts"
+    "start": "node --import tsx server.ts",
+    "db:migrate": "node --import tsx scripts/migrate-database.ts",
+    "db:import-accounts": "node --import tsx scripts/import-account-file.ts"
   },
   "dependencies": {
     "@simplewebauthn/browser": "13.3.0",
@@ -22,6 +24,7 @@
     "@starknet-io/types-js": "0.10.3",
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
+    "pg": "8.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "starknet": "10.7.0",
@@ -30,6 +33,7 @@
   "devDependencies": {
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.15",
+    "@types/pg": "8.23.1",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.0.5",

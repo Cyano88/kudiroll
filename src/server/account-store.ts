@@ -1,7 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { TreasuryShieldRecord } from '../treasury-readiness'
+import { persistenceConfig } from './database'
+import { pgMutateAccountStore, pgReadAccountStore } from './account-postgres-store'
 
 export type SavedWorker = {
   id: string
@@ -44,6 +46,9 @@ export type SavedPayRun = {
   finalityCheckedAt: string
   acceptedBlockNumber: number | null
   finalityMessage: string
+  clientReference: string
+  idempotencyKeyHash: string
+  requestHash: string
   createdAt: string
   updatedAt: string
 }
@@ -83,8 +88,8 @@ export type EncryptedWalletBackup = {
   updatedAt: string
 }
 
-type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
-type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
+export type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
+export type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
 let queue = Promise.resolve()
@@ -115,6 +120,7 @@ function emptyProfile(): BusinessProfile {
 }
 
 async function readStore(): Promise<StoreFile> {
+  if (persistenceConfig().accountBackend === 'postgres') return pgReadAccountStore()
   try {
     const parsed = JSON.parse(await readFile(storePath, 'utf8'))
     return parsed?.version === 1 && parsed?.accounts ? parsed : { version: 1, accounts: {} }
@@ -132,6 +138,7 @@ async function writeStore(store: StoreFile) {
 }
 
 async function mutate<T>(operation: (store: StoreFile) => T | Promise<T>) {
+  if (persistenceConfig().accountBackend === 'postgres') return pgMutateAccountStore(operation)
   let result!: T
   const next = queue.catch(() => undefined).then(async () => {
     const store = await readStore()
@@ -161,6 +168,9 @@ function accountIn(store: StoreFile, address: string) {
     payRun.finalityCheckedAt ??= ''
     payRun.acceptedBlockNumber ??= null
     payRun.finalityMessage ??= ''
+    payRun.clientReference ??= ''
+    payRun.idempotencyKeyHash ??= ''
+    payRun.requestHash ??= ''
   }
   return account
 }
@@ -183,7 +193,7 @@ export function publicAccount(account: AccountRecord) {
     walletAddress: account.walletAddress,
     profile: account.profile,
     teams: account.teams,
-    payRuns: account.payRuns,
+    payRuns: account.payRuns.map(publicPayRun),
     treasuryShields: account.treasuryShields,
     passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt })),
     recoveryReady: account.passkeys.filter(passkey => passkey.prfCapable).length >= 2,
@@ -191,6 +201,11 @@ export function publicAccount(account: AccountRecord) {
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
   }
+}
+
+export function publicPayRun(payRun: SavedPayRun) {
+  const { idempotencyKeyHash: _idempotencyKeyHash, requestHash: _requestHash, ...view } = payRun
+  return view
 }
 
 export async function savePasskey(address: string, input: any) {
@@ -452,13 +467,26 @@ export async function removeWorker(address: string, teamId: string, workerId: st
   })
 }
 
-export async function createPayRun(address: string, input: any) {
+export async function createPayRun(address: string, input: any, idempotencyKey = '') {
   return mutate(store => {
     const account = accountIn(store, address)
-    if (account.payRuns.some(item => item.status === 'submitting' || item.status === 'unknown')) throw Object.assign(new Error('Resolve the existing unknown payroll submission before creating another pay run.'), { status: 409 })
-    const team = account.teams.find(item => item.id === cleanText(input?.teamId, 64))
-    if (!team) throw Object.assign(new Error('Select a saved team.'), { status: 404 })
+    const teamId = cleanText(input?.teamId, 64)
+    const clientReference = cleanText(input?.clientReference, 100)
     const requested = Array.isArray(input?.items) ? input.items : []
+    const normalizedRequest = { teamId, clientReference, items: requested.map((item: any) => ({ workerId: cleanText(item?.workerId, 64), amountUsdc: cleanText(item?.amountUsdc, 32) })) }
+    const requestHash = createHash('sha256').update(JSON.stringify(normalizedRequest)).digest('hex')
+    const normalizedIdempotencyKey = cleanText(idempotencyKey, 128)
+    const idempotencyKeyHash = normalizedIdempotencyKey ? createHash('sha256').update(normalizedIdempotencyKey).digest('hex') : ''
+    if (idempotencyKeyHash) {
+      const existing = account.payRuns.find(item => item.idempotencyKeyHash === idempotencyKeyHash)
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw Object.assign(new Error('This idempotency key was already used for a different pay run.'), { status: 409 })
+        return existing
+      }
+    }
+    if (account.payRuns.some(item => item.status === 'submitting' || item.status === 'unknown')) throw Object.assign(new Error('Resolve the existing unknown payroll submission before creating another pay run.'), { status: 409 })
+    const team = account.teams.find(item => item.id === teamId)
+    if (!team) throw Object.assign(new Error('Select a saved team.'), { status: 404 })
     if (!requested.length) throw Object.assign(new Error('Select at least one worker.'), { status: 400 })
     const workerIds = requested.map((item: any) => cleanText(item?.workerId, 64))
     if (new Set(workerIds).size !== workerIds.length) throw Object.assign(new Error('Each worker can appear only once in a pay run.'), { status: 400 })
@@ -469,7 +497,7 @@ export async function createPayRun(address: string, input: any) {
     })
     const total = items.reduce((sum: bigint, item: SavedPayRunItem) => sum + amountUnits(item.amountUsdc), 0n)
     const now = new Date().toISOString()
-    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', createdAt: now, updatedAt: now }
+    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', clientReference, idempotencyKeyHash, requestHash, createdAt: now, updatedAt: now }
     account.payRuns.unshift(payRun)
     account.updatedAt = now
     return payRun

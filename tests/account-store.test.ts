@@ -41,6 +41,35 @@ test('rejects duplicate workers in the same pay run', async () => {
   )
 })
 
+test('replays identical pay-run creation idempotently and rejects payload drift', async () => {
+  const address = '0x1de'
+  const team = await store.createTeam(address, { name: 'Idempotent team' })
+  const worker = await store.addWorker(address, team.id, { name: 'Stable Worker', walletAddress: '0x1df', defaultAmountUsdc: '3' })
+  const request = { teamId: team.id, clientReference: 'payroll-august', items: [{ workerId: worker.id, amountUsdc: '3' }] }
+  const first = await store.createPayRun(address, request, 'idempotency-key-0001')
+  const replay = await store.createPayRun(address, request, 'idempotency-key-0001')
+  assert.equal(replay.id, first.id)
+  assert.equal((await store.getAccount(address)).payRuns.length, 1)
+  await assert.rejects(store.createPayRun(address, { ...request, items: [{ workerId: worker.id, amountUsdc: '4' }] }, 'idempotency-key-0001'), /different pay run/)
+  assert.equal('idempotencyKeyHash' in store.publicPayRun(first), false)
+  assert.equal('requestHash' in store.publicPayRun(first), false)
+})
+
+test('builds a deterministic non-custodial execution manifest without worker names', async () => {
+  const { createPayRunExecutionManifest } = await import('../src/server/pay-run-manifest')
+  const address = '0x2de'
+  const team = await store.createTeam(address, { name: 'Manifest team' })
+  const worker = await store.addWorker(address, team.id, { name: 'Private Name', walletAddress: '0x2df', defaultAmountUsdc: '2.5' })
+  const run = await store.createPayRun(address, { teamId: team.id, items: [{ workerId: worker.id, amountUsdc: '2.5' }] }, 'idempotency-key-0002')
+  const first = createPayRunExecutionManifest(run)
+  const second = createPayRunExecutionManifest(run)
+  assert.equal(first.snapshotHash, second.snapshotHash)
+  assert.equal(first.signing.authority, 'client')
+  assert.equal(first.signing.serverCanSubmit, false)
+  assert.deepEqual(first.actions, [{ kind: 'private-transfer', workerId: worker.id, recipient: '0x2df', amountUsdc: '2.5' }])
+  assert.equal(JSON.stringify(first).includes('Private Name'), false)
+})
+
 test('enforces pay-run preparation before submission and locks submitted records', async () => {
   const team = await store.createTeam(owner, { name: 'Port Harcourt logistics' })
   const worker = await store.addWorker(owner, team.id, { name: 'Chidi Eze', walletAddress: '0x987', defaultAmountUsdc: '1' })

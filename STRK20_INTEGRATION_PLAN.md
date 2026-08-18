@@ -58,6 +58,16 @@ Execution phases:
 
 Current SDK evidence: the official RC.5 source exposes `./browser`, builds with `platform: browser`, and has a browser test suite. Its GitHub Packages distribution requires authenticated installation, so E2 must establish a reproducible CI/Railway package path without committing or repurposing a developer token.
 
+## 3B. Approved product pivot — Africa-first KudiRoll Rail
+
+**Decision 2026-08-18:** KudiRoll will separate into KudiRoll Rail, a non-custodial private-payroll orchestration API, and KudiRoll App, the first-party reference client. The launch claim remains Nigeria-first until a complete NGN settlement is certified; Kenya, Uganda, Tanzania, Malawi, and any other corridor remain disabled until independently verified.
+
+- Rail servers may own tenants, teams, immutable pay-run intents, idempotency, public transaction evidence and signed lifecycle webhooks.
+- Rail servers never receive plaintext signing keys, viewing keys, notes or proofs and never submit payroll on a customer's behalf.
+- The app or integrating customer's approved wallet converts the deterministic execution manifest into STRK20 operations and requests user approval.
+- Worker-controlled local settlement is a later, separate public exit; its amount, address and timing are public, and the payout provider knows the verified recipient.
+- Employer shielding and private payroll must not be bundled with worker settlement because that would make correlation materially easier.
+
 ## 4. What this delivers — hidden vs visible
 
 | Private inside STRK20 | Public onchain or at the settlement boundary |
@@ -171,7 +181,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 12. Phase 5 — production infrastructure and security
 
-**Status:** planned.
+**Status:** PostgreSQL foundation, durable authentication adapter and encrypted account adapter implemented locally 2026-08-18; Railway provisioning, live database integration tests, backup/restore, reverse migration and production activation remain pending.
 
 1. Replace `src/server/account-store.ts` JSON storage with managed PostgreSQL, schema migrations, encrypted sensitive columns, retention, deletion, backups, and a restore drill.
 2. Replace the `Map` in `src/server/account-router.ts:10` with durable revocable sessions, rotation, expiry, secure cookies, origin/CSRF controls, and per-wallet/IP rate limits.
@@ -180,6 +190,10 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 5. Add a read-only public product tour using sanitized fixtures; all money actions still require a connected wallet.
 6. Expose build commit SHA and deployment time in `/api/health` and the application footer.
 7. Add a post-deploy smoke test that fails the release when health, asset version, API version, or expected commit does not match.
+
+**Implemented slice 2026-08-18:** migration 001 creates per-wallet account rows plus hashed session and single-use challenge tables; `KUDIROLL_AUTH_BACKEND=postgres` explicitly enables the durable auth adapter only after migration; `/api/health` reports configuration and reachability without exposing the database URL. The file backend remains the rollback default, and the app must remain single-replica until account/payroll persistence is cut over and migration-tested.
+
+**Second persistence slice 2026-08-18:** account, team, worker, pay-run, public shield, passkey metadata and already-encrypted wallet-backup records can be imported into per-wallet PostgreSQL rows. Each row is wrapped again with AES-256-GCM using wallet-address authenticated data; SQL rejects plaintext-shaped rows, writes are serialized transactionally across instances, unchanged tenants are not rewritten, imports require an empty target, and health returns 503 when a selected database backend is unreachable or below schema version 1. Activation remains blocked until a real PostgreSQL integration test, backup/restore and reverse-migration drill pass; switching back to the old file after new database writes would restore stale data.
 
 **Exit:** the deployed service tolerates restart/multi-instance operation, protects sensitive payroll data, and proves which commit is live.
 
@@ -211,6 +225,21 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Exit:** the hackathon hub can discover and score every required artifact without private access or explanation from the builder.
 
+## 14A. Phase 7A — KudiRoll Rail extraction
+
+**Status:** first and second boundaries implemented locally 2026-08-18; external developer access pending.
+
+1. Mount `/api/v1` as a separately versioned rail surface while retaining `/api/account` for identity, teams, recovery and transitional finality routes.
+2. Require persisted idempotency for pay-run creation and reject reuse with request drift.
+3. Return a deterministic non-custodial execution manifest containing only worker IDs, Starknet recipients and USDC amounts; exclude worker names and every wallet-private value.
+4. Make KudiRoll App create and execute payroll from that manifest while keeping simulation, signing and submission in the client wallet.
+5. Document the current first-party session boundary honestly; do not release API keys until managed PostgreSQL, tenant isolation, scoped credentials, signed webhooks, revocation, rate limits and audit logs are complete.
+6. **Done locally 2026-08-18:** finality and fresh-passkey unknown-outcome recovery now run through `/api/v1`; legacy account routes delegate to the same finality service for rollback compatibility.
+7. **Done locally 2026-08-18:** `src/rail/client.ts` owns the versioned payroll paths and KudiRoll App consumes it instead of constructing raw payroll URLs.
+8. **HTTP contract gate done locally 2026-08-18:** an authenticated in-process server test exercises capability discovery, session isolation, pay-run creation, manifest privacy and idempotent replay. Physical frontend extraction still waits for production database isolation.
+
+**Manual check:** create one draft from KudiRoll App, confirm `/api/v1` returns client custody, confirm the manifest contains no worker name or secret, simulate without submission, refresh the account and verify exactly one pay-run record exists.
+
 ## 15. Testing strategy
 
 - Headless gate for every phase: clean install, typecheck, all tests, production build, dependency audit, and focused new regression tests.
@@ -241,6 +270,10 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - Ready appearing in the older public test dapp but not KudiRoll was traced to KudiRoll's one-shot injected-wallet scan and default EIP-6963 virtual-wallet noise; the 2026-08-16 remediation still requires confirmation in the owner's Ready-enabled browser.
 - WebAuthn challenges and KudiRoll sessions persist as hashed, expiring records on the mounted volume after E1b, but the JSON adapter remains single-writer infrastructure; the Railway service must stay single-replica until a transactional managed store replaces it.
 - Freshness check on 2026-08-18 found `@starknet-io/get-starknet-wallet-standard` next at 6.0.5 while KudiRoll remains pinned to tested 6.0.4; E1c does not touch wallet discovery, so upgrade only after a separate compatibility pass.
+- The 2026-08-18 freshness check also found discovery next at 6.0.4, wallet-standard next at 6.0.5, removal of `sub_account_anonymizer`, and a new `shadow_account_anonymizer`; none affects this database slice, and the tested application pins remain unchanged.
+- Railway CLI database discovery failed before returning project data with TLS `BadRecordMac`; no database was provisioned, migrated, configured or activated in this phase.
+- The encrypted account adapter preserves existing cross-account passkey uniqueness and pay-run idempotency by taking a PostgreSQL advisory transaction lock and loading encrypted account rows before mutation. This is correct for sprint-scale traffic but remains an O(n) path; replace it with row-scoped repositories and database uniqueness tables before high-volume public API access.
+- `KUDIROLL_DATA_ENCRYPTION_KEY` currently supports one active key. Production activation requires a tested key-rotation and reverse-migration procedure; losing the key makes encrypted account rows unrecoverable.
 - WebAuthn PRF is not a recovery mechanism: do not generate embedded-wallet secrets until KudiRoll supports at least one separately authorized recovery credential and a tested credential-revocation ceremony.
 - E2 preflight reconfirmed official SDK `0.14.3-rc.5`, Node.js 24+, and the explicit `./browser` export. RC.5 renamed the former sub-account surface and package to shadow accounts; KudiRoll does not depend on that experimental path in E2.
 - GitHub Packages returned `401 Unauthorized` without authentication and the official RC.5 release contains no downloadable package asset. Resume E2 only after a dedicated read-only Packages token is supplied to local npm, CI, and Railway without committing it or repurposing an existing developer token.

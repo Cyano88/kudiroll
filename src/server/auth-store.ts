@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { persistenceConfig } from './database'
+import { pgAuthStoreCounts, pgConsumeAuthChallenge, pgCreateAuthSession, pgDeleteAuthSession, pgDeleteAuthSessionsForAddress, pgDeleteAuthSessionsForCredential, pgGetAuthSession, pgSaveAuthChallenge } from './auth-postgres-store'
 
 export type AuthMethod = 'wallet' | 'passkey'
 export type AuthSession = {
@@ -76,6 +78,10 @@ export async function createAuthSession(address: string, method: AuthMethod, cre
   const token = randomBytes(32).toString('base64url')
   const tokenHash = hashSecret(token)
   const now = Date.now()
+  if (persistenceConfig().authBackend === 'postgres') {
+    await pgCreateAuthSession(tokenHash, address, method, credentialId, now)
+    return token
+  }
   await mutate(store => {
     store.sessions[tokenHash] = { tokenHash, address, method, credentialId, authenticatedAt: now, expiresAt: now + 12 * 60 * 60 * 1000 }
   })
@@ -84,6 +90,7 @@ export async function createAuthSession(address: string, method: AuthMethod, cre
 
 export async function getAuthSession(token: string): Promise<AuthSession | null> {
   if (!token) return null
+  if (persistenceConfig().authBackend === 'postgres') return pgGetAuthSession(hashSecret(token))
   const session = (await readStore()).sessions[hashSecret(token)]
   if (!session || session.expiresAt <= Date.now()) return null
   const { tokenHash: _tokenHash, ...view } = session
@@ -92,10 +99,12 @@ export async function getAuthSession(token: string): Promise<AuthSession | null>
 
 export async function deleteAuthSession(token: string) {
   if (!token) return
+  if (persistenceConfig().authBackend === 'postgres') return pgDeleteAuthSession(hashSecret(token))
   await mutate(store => { delete store.sessions[hashSecret(token)] })
 }
 
 export async function deleteAuthSessionsForAddress(address: string) {
+  if (persistenceConfig().authBackend === 'postgres') return pgDeleteAuthSessionsForAddress(address)
   await mutate(store => {
     for (const [key, session] of Object.entries(store.sessions)) if (session.address === address) delete store.sessions[key]
   })
@@ -103,6 +112,7 @@ export async function deleteAuthSessionsForAddress(address: string) {
 
 export async function deleteAuthSessionsForCredential(address: string, credentialId: string, exceptToken = '') {
   const exceptHash = exceptToken ? hashSecret(exceptToken) : ''
+  if (persistenceConfig().authBackend === 'postgres') return pgDeleteAuthSessionsForCredential(address, credentialId, exceptHash)
   await mutate(store => {
     for (const [key, session] of Object.entries(store.sessions)) {
       if (key !== exceptHash && session.address === address && session.credentialId === credentialId) delete store.sessions[key]
@@ -112,11 +122,13 @@ export async function deleteAuthSessionsForCredential(address: string, credentia
 
 export async function saveAuthChallenge(key: string, challenge: AuthChallenge) {
   const keyHash = hashSecret(key)
+  if (persistenceConfig().authBackend === 'postgres') return pgSaveAuthChallenge(`${challenge.purpose}:${keyHash}`, keyHash, challenge)
   await mutate(store => { store.challenges[`${challenge.purpose}:${keyHash}`] = { ...challenge, keyHash } })
 }
 
 export async function consumeAuthChallenge(key: string, purpose: AuthChallenge['purpose']) {
   const storageKey = `${purpose}:${hashSecret(key)}`
+  if (persistenceConfig().authBackend === 'postgres') return pgConsumeAuthChallenge(storageKey)
   return mutate(store => {
     const challenge = store.challenges[storageKey]
     delete store.challenges[storageKey]
@@ -127,6 +139,7 @@ export async function consumeAuthChallenge(key: string, purpose: AuthChallenge['
 }
 
 export async function authStoreCounts() {
+  if (persistenceConfig().authBackend === 'postgres') return pgAuthStoreCounts()
   const store = await readStore()
   clean(store)
   return { sessions: Object.keys(store.sessions).length, challenges: Object.keys(store.challenges).length }

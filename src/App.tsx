@@ -19,6 +19,8 @@ import {
 } from './phase0'
 import type { TreasuryReadiness, TreasuryShieldRecord } from './treasury-readiness'
 import { startInjectedWalletDiscovery } from './wallet-discovery'
+import { createRailPayRun, resolveUnknownRailPayRun, updateRailPayRun, verifyRailPayRun } from './rail/client'
+import type { PayRunExecutionManifest } from './rail/contracts'
 
 // Keep this picker Starknet-native. The default EIP-6963 adapter can surface
 // unrelated EVM providers that cannot run KudiRoll's STRK20 flows.
@@ -872,6 +874,7 @@ function ProductShell({
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, boolean>>({})
   const [accountAction, setAccountAction] = useState('')
   const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
+  const [activeExecutionManifest, setActiveExecutionManifest] = useState<PayRunExecutionManifest | null>(null)
   const [emailVerificationCode, setEmailVerificationCode] = useState('')
   const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'unknown' | 'failed'>('idle')
   const [batchMessage, setBatchMessage] = useState('')
@@ -1021,8 +1024,9 @@ function ProductShell({
     if (totalDraft > privateBalanceUsdc) return setDraftNotice('The total is higher than your available private USDC balance.')
     setAccountAction('payrun')
     try {
-      const result = await onMutateAccount('/api/account/pay-runs', { method: 'POST', body: JSON.stringify({ teamId: selectedTeam.id, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) }) })
+      const result = await createRailPayRun(onMutateAccount, { teamId: selectedTeam.id, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
       setActivePayRun(result.payRun)
+      setActiveExecutionManifest(result.executionManifest)
       setBatchState('idle')
       setBatchMessage('Review this saved snapshot, then ask Ready to simulate the complete private batch.')
       setDraftNotice('Pay run saved as a draft. Nothing was sent.')
@@ -1031,13 +1035,14 @@ function ProductShell({
   }
 
   async function simulateBatch() {
-    if (!wallet || !activePayRun) return
+    if (!wallet || !activePayRun || !activeExecutionManifest) return
+    if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Verify a mature shield or check an existing spendable private balance before preparing payroll.')
     setAccountAction('simulate-batch')
     try {
-      await withTimeout(simulatePrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))), 90_000)
-      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'prepared' }) })
+      await withTimeout(simulatePrivatePayroll(wallet, activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))), 90_000)
+      await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'prepared' })
       setActivePayRun(current => current ? { ...current, status: 'prepared' } : current)
       setBatchState('passed')
       setBatchMessage(`Ready accepted all ${activePayRun.items.length} private transfers as one atomic batch.`)
@@ -1049,21 +1054,22 @@ function ProductShell({
   }
 
   async function submitBatch() {
-    if (!wallet || !activePayRun || batchState !== 'passed' || batchConfirmation !== 'PAY TEAM') return
+    if (!wallet || !activePayRun || !activeExecutionManifest || batchState !== 'passed' || batchConfirmation !== 'PAY TEAM') return
+    if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
     setAccountAction('submit-batch')
     try {
-      await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitting' }) })
+      await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting' })
       setActivePayRun(current => current ? { ...current, status: 'submitting', submissionAttemptedAt: new Date().toISOString() } : current)
-      const submission = submitPrivatePayroll(wallet, activePayRun.items.map(item => ({ recipient: item.walletAddress, amountUsdc: item.amountUsdc }))).then(async result => {
+      const submission = submitPrivatePayroll(wallet, activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))).then(async result => {
         const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
         const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
         if (!transactionHash) throw new Error('Payroll wallet outcome is still unknown because Ready returned no transaction hash.')
         try {
-          await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitted', transactionHash }) })
+          await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitted', transactionHash })
         } catch {
-          await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'unknown', transactionHash }) }).catch(() => null)
+          await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown', transactionHash }).catch(() => null)
           setActivePayRun(current => current ? { ...current, status: 'unknown', transactionHash } : current)
           throw new Error(`Payroll wallet outcome is still unknown after Ready returned transaction hash ${transactionHash} because KudiRoll could not save confirmation.`)
         }
@@ -1080,7 +1086,7 @@ function ProductShell({
       const message = readableError(error)
       if (/outcome is still unknown/i.test(message)) {
         const recoveredHash = message.match(/transaction hash (0x[0-9a-fA-F]{1,64})/)?.[1] || ''
-        const update = await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'unknown', ...(recoveredHash ? { transactionHash: recoveredHash } : {}) }) }).catch(() => null)
+        const update = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown', ...(recoveredHash ? { transactionHash: recoveredHash } : {}) }).catch(() => null)
         if (update?.payRun) setActivePayRun(update.payRun)
         else if (recoveredHash) setActivePayRun(current => current ? { ...current, status: 'unknown', transactionHash: recoveredHash } : current)
         else onRefreshHistory()
@@ -1089,7 +1095,7 @@ function ProductShell({
           ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
           : 'Ready has not returned a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
       } else {
-        await onMutateAccount(`/api/account/pay-runs/${activePayRun.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) }).catch(() => onRefreshHistory())
+        await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
         setActivePayRun(current => current ? { ...current, status: 'failed' } : current)
         setBatchState('failed')
         setBatchMessage(`Payroll was not submitted: ${message}`)
@@ -1100,7 +1106,7 @@ function ProductShell({
   async function verifyPayRun(payRunId: string) {
     setAccountAction(`verify-pay-run:${payRunId}`)
     try {
-      const result = await onMutateAccount(`/api/account/pay-runs/${payRunId}/verify`, { method: 'POST' })
+      const result = await verifyRailPayRun(onMutateAccount, payRunId)
       if (result.pending) window.alert(result.message)
     } catch (error) {
       window.alert(`Could not verify this payroll transaction. ${readableError(error)}`)
@@ -1112,7 +1118,7 @@ function ProductShell({
     if (confirmation !== 'NO TRANSACTION IN READY') return
     setAccountAction(`resolve-pay-run:${payRunId}`)
     try {
-      await onMutateAccount(`/api/account/pay-runs/${payRunId}/resolve-unknown`, { method: 'POST', body: JSON.stringify({ confirmation }) })
+      await resolveUnknownRailPayRun(onMutateAccount, payRunId, confirmation)
     } catch (error) {
       window.alert(`Could not release this unknown submission. ${readableError(error)}`)
     } finally { setAccountAction('') }
