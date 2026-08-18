@@ -65,17 +65,21 @@ export type SavedPasskey = {
   transports: string[]
   deviceType: 'singleDevice' | 'multiDevice'
   backedUp: boolean
+  prfInput: string
+  prfCapable: boolean
   createdAt: string
   lastUsedAt: string
 }
 
 export type EncryptedWalletBackup = {
-  version: 1
+  version: 2
   kdf: 'HKDF-SHA-256'
   cipher: 'AES-256-GCM'
-  salt: string
-  iv: string
+  accountAddress: string
+  signerProvider: 'argent-web-wallet'
+  payloadIv: string
   ciphertext: string
+  keySlots: { credentialId: string; prfInput: string; salt: string; iv: string; wrappedKey: string }[]
   updatedAt: string
 }
 
@@ -147,6 +151,10 @@ function accountIn(store: StoreFile, address: string) {
   account.profile.emailVerifiedAt ??= ''
   account.treasuryShields ??= []
   account.passkeys ??= []
+  for (const passkey of account.passkeys) {
+    passkey.prfInput ??= ''
+    passkey.prfCapable = passkey.prfCapable === true && Boolean(passkey.prfInput)
+  }
   account.encryptedWalletBackup ??= null
   for (const payRun of account.payRuns) {
     payRun.submissionAttemptedAt ??= ''
@@ -163,6 +171,13 @@ function base64Url(value: unknown, label: string, maximum = 4096) {
   return text
 }
 
+function validatedPrfInput(value: unknown) {
+  const text = base64Url(value, 'Passkey PRF input', 128)
+  const bytes = Buffer.from(text, 'base64url')
+  if (bytes.byteLength !== 32 || bytes.toString('base64url') !== text) throw Object.assign(new Error('Passkey PRF input is malformed.'), { status: 400 })
+  return text
+}
+
 export function publicAccount(account: AccountRecord) {
   return {
     walletAddress: account.walletAddress,
@@ -170,8 +185,8 @@ export function publicAccount(account: AccountRecord) {
     teams: account.teams,
     payRuns: account.payRuns,
     treasuryShields: account.treasuryShields,
-    passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, createdAt, lastUsedAt })),
-    recoveryReady: account.passkeys.length >= 2,
+    passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt })),
+    recoveryReady: account.passkeys.filter(passkey => passkey.prfCapable).length >= 2,
     encryptedWalletBackup: account.encryptedWalletBackup ? { available: true, updatedAt: account.encryptedWalletBackup.updatedAt } : null,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
@@ -195,11 +210,28 @@ export async function savePasskey(address: string, input: any) {
       transports: Array.isArray(input?.transports) ? input.transports.map((value: unknown) => cleanText(value, 32)).filter(Boolean).slice(0, 8) : [],
       deviceType,
       backedUp: input?.backedUp === true,
+      prfInput: input?.prfCapable === true ? validatedPrfInput(input?.prfInput) : '',
+      prfCapable: input?.prfCapable === true,
       createdAt: now,
       lastUsedAt: '',
     }
     account.passkeys.push(passkey)
     account.updatedAt = now
+    return passkey
+  })
+}
+
+export async function updatePasskeyPrf(address: string, credentialId: string, prfInput: string) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const passkey = account.passkeys.find(candidate => candidate.credentialId === base64Url(credentialId, 'Passkey credential ID', 1024))
+    if (!passkey) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
+    const nextPrfInput = validatedPrfInput(prfInput)
+    const vaultSlot = account.encryptedWalletBackup?.keySlots.find(slot => slot.credentialId === passkey.credentialId)
+    if (vaultSlot && vaultSlot.prfInput !== nextPrfInput) throw Object.assign(new Error('The passkey PRF input cannot change while an encrypted wallet backup uses it.'), { status: 409 })
+    passkey.prfInput = nextPrfInput
+    passkey.prfCapable = true
+    account.updatedAt = new Date().toISOString()
     return passkey
   })
 }
@@ -230,9 +262,16 @@ export async function updatePasskeyCounter(address: string, credentialId: string
 export async function removePasskey(address: string, credentialId: string) {
   return mutate(store => {
     const account = accountIn(store, address)
-    const index = account.passkeys.findIndex(candidate => candidate.credentialId === base64Url(credentialId, 'Passkey credential ID', 1024))
+    const normalizedCredentialId = base64Url(credentialId, 'Passkey credential ID', 1024)
+    const index = account.passkeys.findIndex(candidate => candidate.credentialId === normalizedCredentialId)
     if (index < 0) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
     if (account.passkeys.length <= 2) throw Object.assign(new Error('Add a third passkey before revoking one; KudiRoll keeps two recovery credentials available.'), { status: 409 })
+    if (account.passkeys[index].prfCapable && account.passkeys.filter(passkey => passkey.prfCapable).length <= 2) throw Object.assign(new Error('Verify another PRF-capable recovery passkey before revoking this one.'), { status: 409 })
+    if (account.encryptedWalletBackup?.keySlots.some(slot => slot.credentialId === normalizedCredentialId)) {
+      if (account.encryptedWalletBackup.keySlots.length <= 2) throw Object.assign(new Error('Add this recovery passkey to the encrypted wallet vault before revoking another wallet passkey.'), { status: 409 })
+      account.encryptedWalletBackup.keySlots = account.encryptedWalletBackup.keySlots.filter(slot => slot.credentialId !== normalizedCredentialId)
+      account.encryptedWalletBackup.updatedAt = new Date().toISOString()
+    }
     const [removed] = account.passkeys.splice(index, 1)
     account.updatedAt = new Date().toISOString()
     return { credentialId: removed.credentialId }
@@ -242,15 +281,31 @@ export async function removePasskey(address: string, credentialId: string) {
 export async function saveEncryptedWalletBackup(address: string, input: any) {
   return mutate(store => {
     const account = accountIn(store, address)
-    if (input?.version !== 1 || input?.kdf !== 'HKDF-SHA-256' || input?.cipher !== 'AES-256-GCM') throw Object.assign(new Error('This encrypted wallet vault version is unsupported.'), { status: 400 })
+    if (input?.version !== 2 || input?.kdf !== 'HKDF-SHA-256' || input?.cipher !== 'AES-256-GCM' || input?.signerProvider !== 'argent-web-wallet') throw Object.assign(new Error('This encrypted wallet vault version is unsupported.'), { status: 400 })
+    const vaultAddress = walletAddress(input?.accountAddress)
+    if (vaultAddress !== account.walletAddress) throw Object.assign(new Error('The encrypted wallet vault belongs to a different Starknet account.'), { status: 409 })
+    if (!Array.isArray(input?.keySlots) || input.keySlots.length < 2 || input.keySlots.length > 12) throw Object.assign(new Error('The encrypted wallet vault must contain two to twelve recovery passkey slots.'), { status: 400 })
+    const slotIds = new Set<string>()
+    const keySlots = input.keySlots.map((slot: any) => {
+      const credentialId = base64Url(slot?.credentialId, 'Vault passkey credential ID', 1024)
+      if (slotIds.has(credentialId)) throw Object.assign(new Error('The encrypted wallet vault contains duplicate passkey slots.'), { status: 400 })
+      const passkey = account.passkeys.find(candidate => candidate.credentialId === credentialId)
+      if (!passkey?.prfCapable) throw Object.assign(new Error('Every wallet vault slot must belong to a PRF-verified account passkey.'), { status: 409 })
+      const slotPrfInput = validatedPrfInput(slot?.prfInput)
+      if (slotPrfInput !== passkey.prfInput) throw Object.assign(new Error('The wallet vault PRF input does not match its active passkey.'), { status: 409 })
+      slotIds.add(credentialId)
+      return { credentialId, prfInput: slotPrfInput, salt: base64Url(slot?.salt, 'Vault slot salt', 128), iv: base64Url(slot?.iv, 'Vault slot IV', 128), wrappedKey: base64Url(slot?.wrappedKey, 'Vault wrapped key', 256) }
+    })
     const now = new Date().toISOString()
     account.encryptedWalletBackup = {
-      version: 1,
+      version: 2,
       kdf: 'HKDF-SHA-256',
       cipher: 'AES-256-GCM',
-      salt: base64Url(input?.salt, 'Vault salt', 128),
-      iv: base64Url(input?.iv, 'Vault IV', 128),
+      accountAddress: vaultAddress,
+      signerProvider: 'argent-web-wallet',
+      payloadIv: base64Url(input?.payloadIv, 'Vault payload IV', 128),
       ciphertext: base64Url(input?.ciphertext, 'Vault ciphertext', 16384),
+      keySlots,
       updatedAt: now,
     }
     account.updatedAt = now

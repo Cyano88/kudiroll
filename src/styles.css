@@ -351,12 +351,14 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .passkeyList span, .passkeyList strong, .passkeyList small { display: block; }
 .passkeyList strong { font-size: .72rem; }
 .passkeyList small { margin-top: 4px; color: #858b82; font-size: .62rem; }
+.passkeyActions { display: flex; align-items: center; gap: 8px; }
 
 @media (max-width: 720px) {
   .recoveryChecks { grid-template-columns: 1fr; }
   .emailVerification, .emailVerificationActions { align-items: stretch; flex-direction: column; }
   .emailVerificationActions input { width: 100%; }
   .passkeyList > div { align-items: stretch; flex-direction: column; }
+  .passkeyActions { justify-content: flex-start; }
 }
 .scopeList { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
 .scopeList > div { min-height: 112px; border: 1px solid #e1e6df; border-radius: 9px; padding: 16px; background: #f7f9f6; }

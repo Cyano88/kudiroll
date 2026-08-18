@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
+import { decodePasskeyPrfInput, requestPasskeyPrf, splitPasskeyPrf } from './embedded-wallet/passkey-prf'
 import { createStore } from '@starknet-io/get-starknet-discovery'
 import type { WalletWithStarknetFeatures } from '@starknet-io/get-starknet-wallet-standard/features'
 import { constants, WalletAccountV6, walletV6 } from 'starknet'
@@ -66,7 +67,7 @@ type SavedTeam = { id: string; name: string; description: string; workers: Saved
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -342,16 +343,39 @@ export function App() {
   }
 
   async function registerPasskey() {
+    let prfSecret: Uint8Array | null = null
     try {
       setBusy('passkey-register')
       const request = await accountJson('/api/account/passkeys/registration/options', { method: 'POST' })
-      const response = await startRegistration({ optionsJSON: request.options })
-      const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response }) })
+      const response = await startRegistration({ optionsJSON: requestPasskeyPrf(request.options, decodePasskeyPrfInput(request.prfInput)) as any })
+      const extracted = splitPasskeyPrf(response)
+      prfSecret = extracted.prfSecret
+      const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
       setAccountData(result.account)
-      alert('Passkey created. You can use it on the KudiRoll sign-in screen without opening a wallet extension.')
+      alert(prfSecret ? 'Passkey created and verified for private-wallet recovery.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
     } catch (error) {
       alert(`Could not create the passkey. ${readableError(error)}`)
     } finally {
+      prfSecret?.fill(0)
+      setBusy('')
+    }
+  }
+
+  async function verifyPasskeyPrf(credentialId: string) {
+    let prfSecret: Uint8Array | null = null
+    try {
+      setBusy('passkey-prf')
+      const request = await accountJson('/api/account/passkeys/prf/options', { method: 'POST', body: JSON.stringify({ credentialId }) })
+      const response = await startAuthentication({ optionsJSON: requestPasskeyPrf(request.options, decodePasskeyPrfInput(request.prfInput)) as any })
+      const extracted = splitPasskeyPrf(response)
+      prfSecret = extracted.prfSecret
+      const result = await accountJson('/api/account/passkeys/prf/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
+      setAccountData(result.account)
+      alert('This passkey is verified for private-wallet recovery.')
+    } catch (error) {
+      alert(`Could not verify this recovery passkey. ${readableError(error)}`)
+    } finally {
+      prfSecret?.fill(0)
       setBusy('')
     }
   }
@@ -698,6 +722,7 @@ export function App() {
     onDisconnect={leaveWallet}
     onDeleteAccount={deleteKudiRollAccount}
     onRegisterPasskey={registerPasskey}
+    onVerifyPasskeyPrf={verifyPasskeyPrf}
     onRevokePasskey={revokePasskey}
     onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
   />
@@ -747,17 +772,17 @@ function SignInLanding({
           <h2>Pay your people.<br />Keep payroll private.</h2>
           <p>Prepare team payments, review every amount, and use private USDC from one secure Starknet workspace.</p>
         </div>
-        <div className="signInTrust">Non-custodial wallet access</div>
+        <div className="signInTrust">Extension-free account access</div>
       </section>
 
       <section className="signInCard" aria-labelledby="sign-in-title">
         <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
         <h1 id="sign-in-title">Sign in to continue</h1>
-        <p className="signInBody">Use your device passkey. No wallet extension is required after one-time account setup.</p>
+        <p className="signInBody">Use your device passkey to sign in. Private transactions still use Ready X during the embedded signer rollout.</p>
 
         <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span><i aria-hidden="true">→</i></button>
         <details className="walletMigration"><summary>First time? Link an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>
-        <p className="signInHint">Existing users connect once, then create a passkey in Business profile. Ready X remains a temporary STRK20 migration tool.</p>
+        <p className="signInHint">Passkeys remove the extension from sign-in today. Extension-free transaction signing is being certified separately before Mainnet release.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
@@ -801,6 +826,7 @@ function ProductShell({
   onDisconnect,
   onDeleteAccount,
   onRegisterPasskey,
+  onVerifyPasskeyPrf,
   onRevokePasskey,
   onToggleTheme,
 }: {
@@ -829,9 +855,11 @@ function ProductShell({
   onDisconnect: () => void
   onDeleteAccount: (confirmation: string) => Promise<any>
   onRegisterPasskey: () => void
+  onVerifyPasskeyPrf: (credentialId: string) => void
   onRevokePasskey: (credentialId: string) => void
   onToggleTheme: () => void
 }) {
+  const prfPasskeyCount = accountData?.passkeys.filter(passkey => passkey.prfCapable).length ?? 0
   const [teamName, setTeamName] = useState('')
   const [teamDescription, setTeamDescription] = useState('')
   const [selectedTeamId, setSelectedTeamId] = useState('')
@@ -1202,14 +1230,14 @@ function ProductShell({
         </section>
         <section className="panel accountScope">
           <div className="panelTitle"><div><span>Extension-free access</span><h3>Passkeys and recovery</h3></div><span className={`statePill ${accountData?.recoveryReady ? 'safe' : 'neutral'}`}>{accountData?.recoveryReady ? 'Recovery ready' : 'Setup incomplete'}</span></div>
-          <p className="passkeyCopy">KudiRoll requires two passkeys before an embedded wallet can be created. Revocation needs a different passkey and cannot reduce the account below two recovery credentials.</p>
-          <button onClick={onRegisterPasskey} disabled={Boolean(accountAction) || busy === 'passkey-register' || busy === 'passkey-revoke'}>{busy === 'passkey-register' ? 'Creating passkey…' : accountData?.passkeys.length ? 'Add recovery passkey' : 'Create passkey'}</button>
-          <div className="recoveryChecks"><div><strong>{accountData?.passkeys.length ?? 0} / 2 passkeys</strong><span>{accountData?.recoveryReady ? 'Minimum recovery credentials configured.' : 'Add passkeys on separate devices or password-manager ecosystems.'}</span></div><div><strong>{accountData?.profile.emailVerifiedAt ? 'Email identity verified' : 'Email recovery inactive'}</strong><span>Email can verify account identity, but it never decrypts or recovers wallet funds by itself.</span></div></div>
-          {!!accountData?.passkeys.length && <div className="passkeyList">{accountData.passkeys.map((passkey, index) => <div key={passkey.credentialId}><span><strong>Passkey {index + 1}</strong><small>{passkey.deviceType === 'multiDevice' ? 'Synced credential' : 'Device credential'} · added {new Date(passkey.createdAt).toLocaleDateString()} · …{passkey.credentialId.slice(-8)}</small></span><button className="quiet" onClick={() => onRevokePasskey(passkey.credentialId)} disabled={accountData.passkeys.length <= 2 || busy === 'passkey-revoke'}>{busy === 'passkey-revoke' ? 'Verifying…' : 'Revoke'}</button></div>)}</div>}
+          <p className="passkeyCopy">KudiRoll requires two PRF-capable passkeys before private state can be backed up. The embedded smart account signs transactions; KudiRoll never stores its signer key.</p>
+          <button onClick={onRegisterPasskey} disabled={Boolean(accountAction) || busy === 'passkey-register' || busy === 'passkey-prf' || busy === 'passkey-revoke'}>{busy === 'passkey-register' ? 'Creating passkey…' : accountData?.passkeys.length ? 'Add recovery passkey' : 'Create passkey'}</button>
+          <div className="recoveryChecks"><div><strong>{prfPasskeyCount} / 2 recovery passkeys</strong><span>{accountData?.recoveryReady ? 'Two PRF-capable recovery credentials are configured.' : 'Verify two passkeys on separate devices or password-manager ecosystems.'}</span></div><div><strong>{accountData?.profile.emailVerifiedAt ? 'Email identity verified' : 'Email recovery inactive'}</strong><span>Email can verify account identity, but it never decrypts or recovers wallet funds by itself.</span></div></div>
+          {!!accountData?.passkeys.length && <div className="passkeyList">{accountData.passkeys.map((passkey, index) => <div key={passkey.credentialId}><span><strong>Passkey {index + 1}</strong><small>{passkey.deviceType === 'multiDevice' ? 'Synced credential' : 'Device credential'} · {passkey.prfCapable ? 'private recovery ready' : 'sign-in only'} · added {new Date(passkey.createdAt).toLocaleDateString()} · …{passkey.credentialId.slice(-8)}</small></span><div className="passkeyActions"><button className="secondary" onClick={() => onVerifyPasskeyPrf(passkey.credentialId)} disabled={busy === 'passkey-prf'}>{busy === 'passkey-prf' ? 'Checking…' : passkey.prfCapable ? 'Test recovery' : 'Verify recovery'}</button><button className="quiet" onClick={() => onRevokePasskey(passkey.credentialId)} disabled={accountData.passkeys.length <= 2 || (passkey.prfCapable && prfPasskeyCount <= 2) || busy === 'passkey-revoke'}>{busy === 'passkey-revoke' ? 'Verifying…' : 'Revoke'}</button></div></div>)}</div>}
         </section>
         <section className="panel accountScope">
           <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div></div>
-          <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Security boundary</strong><span>KudiRoll stores passkey public credentials only. Plaintext wallet keys, viewing keys, proofs, and recovery secrets never reach the server.</span></div></div>
+          <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Security boundary</strong><span>KudiRoll stores passkey public credentials and may store encrypted STRK20 private-state ciphertext. Signer keys, plaintext viewing keys, proofs, and recovery secrets never reach the server.</span></div></div>
         </section>
         <section className="panel dangerZone">
           <div><span>Permanent action</span><h3>Delete KudiRoll account</h3><p>This permanently removes this business profile, saved teams, workers, and pay-run records from KudiRoll. It does not delete your Starknet wallet, onchain transactions, or records retained independently by Paycrest.</p></div>

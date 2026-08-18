@@ -3,7 +3,7 @@ import { Router } from 'express'
 import { RpcProvider, constants } from 'starknet'
 import { generateAuthenticationOptions, generateRegistrationOptions, verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON, WebAuthnCredential } from '@simplewebauthn/server'
-import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, findPasskey, getAccount, getEncryptedWalletBackup, markBusinessEmailVerified, publicAccount, recordPayRunFinality, recordTreasuryShield, removePasskey, removeWorker, resolveUnknownPayRun, saveEncryptedWalletBackup, savePasskey, updateBusinessProfile, updatePasskeyCounter, updatePayRun, updateTeam } from './account-store'
+import { addWorker, createPayRun, createTeam, deleteAccount, deleteTeam, findPasskey, getAccount, getEncryptedWalletBackup, markBusinessEmailVerified, publicAccount, recordPayRunFinality, recordTreasuryShield, removePasskey, removeWorker, resolveUnknownPayRun, saveEncryptedWalletBackup, savePasskey, updateBusinessProfile, updatePasskeyCounter, updatePasskeyPrf, updatePayRun, updateTeam } from './account-store'
 import { consumeAuthChallenge, createAuthSession, deleteAuthSession, deleteAuthSessionsForAddress, deleteAuthSessionsForCredential, getAuthSession, saveAuthChallenge } from './auth-store'
 import { deriveTreasuryReadiness } from '../treasury-readiness'
 import { receiptTouchesPool } from '../pay-run-finality'
@@ -242,8 +242,9 @@ export function createAccountRouter() {
         excludeCredentials: account.passkeys.map(passkey => ({ id: passkey.credentialId, transports: passkey.transports as any })),
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
       })
-      await saveAuthChallenge(token, { purpose: 'passkey-register', challenge: options.challenge, address, targetCredentialId: '', expiresAt: Date.now() + 5 * 60 * 1000 })
-      res.json({ ok: true, options })
+      const prfInput = randomBytes(32).toString('base64url')
+      await saveAuthChallenge(token, { purpose: 'passkey-register', challenge: options.challenge, address, targetCredentialId: '', prfInput, expiresAt: Date.now() + 5 * 60 * 1000 })
+      res.json({ ok: true, options, prfInput })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
     }
@@ -268,8 +269,61 @@ export function createAccountRouter() {
         transports: response?.response?.transports || [],
         deviceType: credentialDeviceType,
         backedUp: credentialBackedUp,
+        prfInput: stored.prfInput,
+        prfCapable: req.body?.prfCapable === true,
       })
       res.status(201).json({ ok: true, account: publicAccount(await getAccount(address)) })
+    } catch (error) {
+      res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
+    }
+  })
+
+  router.post('/passkeys/prf/options', rateLimit('passkey-prf-options', 10), async (req, res) => {
+    try {
+      const { session } = await requireRecentSession(req)
+      const account = await getAccount(session.address)
+      const targetCredentialId = String(req.body?.credentialId || '')
+      const passkey = account.passkeys.find(candidate => candidate.credentialId === targetCredentialId)
+      if (!passkey) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
+      const { rpID } = webauthnSettings(req)
+      const options = await generateAuthenticationOptions({
+        rpID,
+        userVerification: 'required',
+        allowCredentials: [{ id: passkey.credentialId, transports: passkey.transports as any }],
+      })
+      const requestId = randomBytes(32).toString('base64url')
+      const prfInput = passkey.prfInput || randomBytes(32).toString('base64url')
+      await saveAuthChallenge(requestId, { purpose: 'passkey-prf', challenge: options.challenge, address: session.address, targetCredentialId, prfInput, expiresAt: Date.now() + 5 * 60 * 1000 })
+      res.setHeader('Set-Cookie', challengeCookie(requestId))
+      res.json({ ok: true, options, prfInput })
+    } catch (error) {
+      res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
+    }
+  })
+
+  router.post('/passkeys/prf/verify', rateLimit('passkey-prf-verify', 10), async (req, res) => {
+    try {
+      const current = await requireSession(req)
+      const stored = await consumeAuthChallenge(challengeToken(req), 'passkey-prf')
+      res.setHeader('Set-Cookie', challengeCookie('', 0))
+      if (stored.address !== current.session.address) throw Object.assign(new Error('This private-wallet recovery request does not match the account.'), { status: 401 })
+      const response = req.body?.response as AuthenticationResponseJSON
+      if (response?.id !== stored.targetCredentialId) throw Object.assign(new Error('Use the selected passkey for this recovery check.'), { status: 401 })
+      const match = await findPasskey(response.id)
+      if (!match || match.walletAddress !== stored.address) throw Object.assign(new Error('This passkey is not linked to the account.'), { status: 401 })
+      const { origin, rpID } = webauthnSettings(req)
+      const credential: WebAuthnCredential = {
+        id: match.passkey.credentialId,
+        publicKey: Uint8Array.from(Buffer.from(match.passkey.publicKey, 'base64url')),
+        counter: match.passkey.counter,
+        transports: match.passkey.transports as any,
+      }
+      const verification = await verifyAuthenticationResponse({ response, expectedChallenge: stored.challenge, expectedOrigin: origin, expectedRPID: rpID, credential, requireUserVerification: true })
+      if (!verification.verified) throw Object.assign(new Error('The passkey could not be verified.'), { status: 401 })
+      await updatePasskeyCounter(match.walletAddress, match.passkey.credentialId, verification.authenticationInfo.newCounter)
+      if (req.body?.prfCapable !== true || !stored.prfInput) throw Object.assign(new Error('This passkey does not provide the WebAuthn PRF required for private-wallet recovery.'), { status: 409 })
+      await updatePasskeyPrf(match.walletAddress, match.passkey.credentialId, stored.prfInput)
+      res.json({ ok: true, account: publicAccount(await getAccount(match.walletAddress)) })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
     }
@@ -319,8 +373,10 @@ export function createAccountRouter() {
       const { session } = await requireSession(req)
       const account = await getAccount(session.address)
       const targetCredentialId = String(req.body?.credentialId || '')
-      if (!account.passkeys.some(passkey => passkey.credentialId === targetCredentialId)) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
+      const targetPasskey = account.passkeys.find(passkey => passkey.credentialId === targetCredentialId)
+      if (!targetPasskey) throw Object.assign(new Error('Passkey not found.'), { status: 404 })
       if (account.passkeys.length <= 2) throw Object.assign(new Error('Add a third passkey before revoking one; KudiRoll keeps two recovery credentials available.'), { status: 409 })
+      if (targetPasskey.prfCapable && account.passkeys.filter(passkey => passkey.prfCapable).length <= 2) throw Object.assign(new Error('Verify another PRF-capable recovery passkey before revoking this one.'), { status: 409 })
       const { rpID } = webauthnSettings(req)
       const options = await generateAuthenticationOptions({
         rpID,

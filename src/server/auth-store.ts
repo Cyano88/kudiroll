@@ -12,10 +12,11 @@ export type AuthSession = {
 }
 
 export type AuthChallenge = {
-  purpose: 'wallet-signin' | 'passkey-register' | 'passkey-signin' | 'passkey-revoke' | 'email-verify'
+  purpose: 'wallet-signin' | 'passkey-register' | 'passkey-signin' | 'passkey-prf' | 'passkey-revoke' | 'email-verify'
   challenge: string
   address: string
   targetCredentialId: string
+  prfInput?: string
   expiresAt: number
 }
 

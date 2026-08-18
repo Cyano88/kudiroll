@@ -1,40 +1,46 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { openEmbeddedWalletVault, sealEmbeddedWalletVault } from '../src/embedded-wallet/vault'
+import { addEmbeddedWalletKeySlot, openEmbeddedWalletVault, removeEmbeddedWalletKeySlot, sealEmbeddedWalletVault } from '../src/embedded-wallet/vault'
 
-const secrets = {
-  signerPrivateKey: '0x123456789abcdef',
-  viewingKey: '0xabcdef123456789',
-}
-
-function unlockSecret() {
-  return globalThis.crypto.getRandomValues(new Uint8Array(32))
-}
-
-test('encrypts embedded wallet secrets without persisting plaintext', async () => {
-  const unlock = unlockSecret()
-  const vault = await sealEmbeddedWalletVault(secrets, unlock)
-  assert.equal(vault.version, 1)
-  assert.equal(vault.kdf, 'HKDF-SHA-256')
-  assert.equal(vault.cipher, 'AES-256-GCM')
-  assert.equal(JSON.stringify(vault).includes(secrets.signerPrivateKey), false)
-  assert.equal(JSON.stringify(vault).includes(secrets.viewingKey), false)
-  assert.deepEqual(await openEmbeddedWalletVault(vault, unlock), secrets)
+const state = { accountAddress: '0x123456789abcdef', signerProvider: 'argent-web-wallet' as const, viewingKey: '0xabcdef123456789' }
+const unlock = (credentialId: string) => ({
+  credentialId,
+  prfInput: Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(32))).toString('base64url'),
+  prfSecret: globalThis.crypto.getRandomValues(new Uint8Array(32)),
 })
 
-test('rejects the wrong passkey unlock secret', async () => {
-  const vault = await sealEmbeddedWalletVault(secrets, unlockSecret())
-  await assert.rejects(openEmbeddedWalletVault(vault, unlockSecret()), /could not unlock/)
+test('encrypts only STRK20 private state and never stores a signer private key', async () => {
+  const first = unlock('credential_one')
+  const vault = await sealEmbeddedWalletVault(state, first)
+  assert.equal(vault.version, 2)
+  assert.equal(vault.signerProvider, 'argent-web-wallet')
+  assert.equal(JSON.stringify(vault).includes(state.viewingKey), false)
+  assert.equal(JSON.stringify(vault).includes('signerPrivateKey'), false)
+  assert.deepEqual(await openEmbeddedWalletVault(vault, first), state)
 })
 
-test('rejects modified vault ciphertext', async () => {
-  const unlock = unlockSecret()
-  const vault = await sealEmbeddedWalletVault(secrets, unlock)
+test('authorizes independent recovery passkeys with separate wrapped-key slots', async () => {
+  const first = unlock('credential_one')
+  const second = unlock('credential_two')
+  const third = unlock('credential_three')
+  let vault = await sealEmbeddedWalletVault(state, first)
+  vault = await addEmbeddedWalletKeySlot(vault, first, second)
+  vault = await addEmbeddedWalletKeySlot(vault, second, third)
+  assert.deepEqual(await openEmbeddedWalletVault(vault, third), state)
+  assert.equal(removeEmbeddedWalletKeySlot(vault, 'credential_one').keySlots.length, 2)
+  assert.throws(() => removeEmbeddedWalletKeySlot(removeEmbeddedWalletKeySlot(vault, 'credential_one'), 'credential_two'), /at least two/)
+})
+
+test('rejects wrong PRF output, unauthorized credentials, and modified ciphertext', async () => {
+  const first = unlock('credential_one')
+  const vault = await sealEmbeddedWalletVault(state, first)
+  await assert.rejects(openEmbeddedWalletVault(vault, { ...first, prfSecret: unlock('x').prfSecret }), /could not unlock/)
+  await assert.rejects(openEmbeddedWalletVault(vault, unlock('credential_other')), /not authorized/)
   const replacement = vault.ciphertext.endsWith('A') ? 'B' : 'A'
-  await assert.rejects(openEmbeddedWalletVault({ ...vault, ciphertext: vault.ciphertext.slice(0, -1) + replacement }, unlock), /could not unlock|malformed/)
+  await assert.rejects(openEmbeddedWalletVault({ ...vault, ciphertext: vault.ciphertext.slice(0, -1) + replacement }, first), /could not unlock|malformed/)
 })
 
-test('rejects malformed secrets and short unlock material', async () => {
-  await assert.rejects(sealEmbeddedWalletVault({ ...secrets, viewingKey: 'not-a-key' }, unlockSecret()), /viewing key/)
-  await assert.rejects(sealEmbeddedWalletVault(secrets, new Uint8Array(16)), /too short/)
+test('rejects malformed private state and short PRF material', async () => {
+  await assert.rejects(sealEmbeddedWalletVault({ ...state, viewingKey: 'not-a-key' }, unlock('credential_one')), /viewing key/)
+  await assert.rejects(sealEmbeddedWalletVault(state, { ...unlock('credential_one'), prfSecret: new Uint8Array(16) }), /too short/)
 })

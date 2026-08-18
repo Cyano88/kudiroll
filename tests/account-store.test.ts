@@ -9,6 +9,9 @@ const dataFile = join(tmpdir(), `kudiroll-${randomUUID()}.json`)
 process.env.KUDIROLL_DATA_FILE = dataFile
 const store = await import('../src/server/account-store')
 const owner = '0x123'
+const PRF_ONE = Buffer.alloc(32, 1).toString('base64url')
+const PRF_TWO = Buffer.alloc(32, 2).toString('base64url')
+const PRF_THREE = Buffer.alloc(32, 3).toString('base64url')
 
 test.after(async () => { await rm(dataFile, { force: true }) })
 
@@ -140,7 +143,10 @@ test('stores passkey public credentials without exposing verification material i
   assert.equal(match?.passkey.publicKey, 'public_key_123')
   const view = store.publicAccount(await store.getAccount(address))
   assert.equal(view.passkeys[0].backedUp, true)
+  assert.equal(view.passkeys[0].prfCapable, false)
   assert.equal('publicKey' in view.passkeys[0], false)
+  await store.updatePasskeyPrf(address, 'credential_123', PRF_ONE)
+  assert.equal(store.publicAccount(await store.getAccount(address)).passkeys[0].prfCapable, true)
   await store.updatePasskeyCounter(address, 'credential_123', 5)
   await assert.rejects(store.updatePasskeyCounter(address, 'credential_123', 4), /rollback/)
   await assert.rejects(store.savePasskey('0xbeef', { credentialId: 'credential_123', publicKey: 'other_key', counter: 0 }), /another KudiRoll account/)
@@ -148,26 +154,54 @@ test('stores passkey public credentials without exposing verification material i
 
 test('keeps two recovery passkeys after a credential revocation', async () => {
   const address = '0xaaa'
-  for (const suffix of ['one', 'two', 'three']) await store.savePasskey(address, { credentialId: `credential_${suffix}`, publicKey: `public_${suffix}`, counter: 0 })
+  for (const [suffix, prfInput] of [['one', PRF_ONE], ['two', PRF_TWO], ['three', PRF_THREE]]) await store.savePasskey(address, { credentialId: `credential_${suffix}`, publicKey: `public_${suffix}`, counter: 0, prfCapable: true, prfInput })
   assert.equal(store.publicAccount(await store.getAccount(address)).recoveryReady, true)
   await store.removePasskey(address, 'credential_one')
   assert.equal((await store.getAccount(address)).passkeys.length, 2)
   await assert.rejects(store.removePasskey(address, 'credential_two'), /Add a third passkey/)
 })
 
+test('never revokes one of only two PRF-capable recovery credentials', async () => {
+  const address = '0xaab'
+  await store.savePasskey(address, { credentialId: 'protected_one', publicKey: 'protected_public_one', counter: 0, prfCapable: true, prfInput: PRF_ONE })
+  await store.savePasskey(address, { credentialId: 'protected_two', publicKey: 'protected_public_two', counter: 0, prfCapable: true, prfInput: PRF_TWO })
+  await store.savePasskey(address, { credentialId: 'signin_only', publicKey: 'signin_public', counter: 0 })
+  await assert.rejects(store.removePasskey(address, 'protected_one'), /another PRF-capable/)
+  await store.removePasskey(address, 'signin_only')
+  assert.equal(store.publicAccount(await store.getAccount(address)).recoveryReady, true)
+})
+
 test('persists only a validated encrypted wallet envelope', async () => {
   const address = '0xcafe'
+  await store.savePasskey(address, { credentialId: 'vault_credential_one', publicKey: 'vault_public_one', counter: 0, prfCapable: true, prfInput: PRF_ONE })
+  await store.savePasskey(address, { credentialId: 'vault_credential_two', publicKey: 'vault_public_two', counter: 0, prfCapable: true, prfInput: PRF_TWO })
   const metadata = await store.saveEncryptedWalletBackup(address, {
-    version: 1,
+    version: 2,
     kdf: 'HKDF-SHA-256',
     cipher: 'AES-256-GCM',
-    salt: 'salt_123',
-    iv: 'iv_123',
+    accountAddress: address,
+    signerProvider: 'argent-web-wallet',
+    payloadIv: 'iv_123',
     ciphertext: 'ciphertext_123',
+    keySlots: [
+      { credentialId: 'vault_credential_one', prfInput: PRF_ONE, salt: 'salt_one', iv: 'iv_one', wrappedKey: 'wrapped_one' },
+      { credentialId: 'vault_credential_two', prfInput: PRF_TWO, salt: 'salt_two', iv: 'iv_two', wrappedKey: 'wrapped_two' },
+    ],
   })
   assert.equal(metadata.available, true)
   const backup = await store.getEncryptedWalletBackup(address)
   assert.equal(backup?.ciphertext, 'ciphertext_123')
   assert.deepEqual(Object.keys(store.publicAccount(await store.getAccount(address)).encryptedWalletBackup || {}).sort(), ['available', 'updatedAt'])
+  await store.savePasskey(address, { credentialId: 'vault_credential_three', publicKey: 'vault_public_three', counter: 0, prfCapable: true, prfInput: PRF_THREE })
+  await assert.rejects(store.removePasskey(address, 'vault_credential_one'), /encrypted wallet vault/)
+  await store.saveEncryptedWalletBackup(address, {
+    ...backup,
+    keySlots: [
+      ...(backup?.keySlots || []),
+      { credentialId: 'vault_credential_three', prfInput: PRF_THREE, salt: 'salt_three', iv: 'iv_three', wrappedKey: 'wrapped_three' },
+    ],
+  })
+  await store.removePasskey(address, 'vault_credential_one')
+  assert.deepEqual((await store.getEncryptedWalletBackup(address))?.keySlots.map(slot => slot.credentialId).sort(), ['vault_credential_three', 'vault_credential_two'])
   await assert.rejects(store.saveEncryptedWalletBackup(address, { version: 1, kdf: 'password', cipher: 'AES-256-GCM' }), /unsupported/)
 })
