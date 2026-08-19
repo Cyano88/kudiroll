@@ -168,6 +168,11 @@ export function App() {
   const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(null)
   const [treasuryError, setTreasuryError] = useState('')
   const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false)
+  const [emailAddress, setEmailAddress] = useState('')
+  const [emailCode, setEmailCode] = useState('')
+  const [emailAuthStep, setEmailAuthStep] = useState<'request' | 'verify' | 'link' | 'secure'>('request')
+  const [emailAuthNotice, setEmailAuthNotice] = useState('')
+  const [pendingEmailLink, setPendingEmailLink] = useState(false)
 
   const walletAddress = wallet?.address || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
@@ -214,9 +219,8 @@ export function App() {
   }, [accountData?.walletAddress])
 
   useEffect(() => {
-    if (!enteredApp) return
     void localJson('/api/account/email/status').then(data => setEmailDeliveryConfigured(data.configured === true)).catch(() => setEmailDeliveryConfigured(false))
-  }, [enteredApp])
+  }, [])
 
   useEffect(() => {
     if (!accountData?.walletAddress || !treasuryReadiness || !['submitted', 'maturing', 'unknown'].includes(treasuryReadiness.status)) return
@@ -336,8 +340,16 @@ export function App() {
           ? [String(rawSignature.r), String(rawSignature.s)]
           : []
       const session = await accountJson('/api/account/session', { method: 'POST', body: JSON.stringify({ address, nonce: challenge.challenge.nonce, signature }) })
-      setAccountData(session.account)
-      setEnteredApp(true)
+      if (pendingEmailLink) {
+        const linked = await accountJson('/api/account/email/link', { method: 'POST' })
+        setAccountData(linked.account)
+        setPendingEmailLink(false)
+        setEmailAuthStep('secure')
+        setEmailAuthNotice('Email verified and account linked. Secure this device to finish.')
+      } else {
+        setAccountData(session.account)
+        setEnteredApp(true)
+      }
     } catch (error) {
       alert(`Could not open your KudiRoll account. ${readableError(error)}`)
     } finally {
@@ -360,7 +372,46 @@ export function App() {
     }
   }
 
-  async function registerPasskey() {
+  async function requestEmailSignIn() {
+    try {
+      setBusy('email-request')
+      setEmailAuthNotice('')
+      await accountJson('/api/account/email/authentication/request', { method: 'POST', body: JSON.stringify({ email: emailAddress }) })
+      setEmailCode('')
+      setEmailAuthStep('verify')
+      setEmailAuthNotice('We sent a six-digit code. It expires in 10 minutes.')
+    } catch (error) {
+      setEmailAuthNotice(readableError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function verifyEmailSignIn() {
+    try {
+      setBusy('email-verify')
+      setEmailAuthNotice('')
+      const result = await accountJson('/api/account/email/authentication/verify', { method: 'POST', body: JSON.stringify({ code: emailCode }) })
+      if (result.mode === 'signin') {
+        setAccountData(result.account)
+        if (result.account?.passkeys?.length) setEnteredApp(true)
+        else {
+          setEmailAuthStep('secure')
+          setEmailAuthNotice('Email verified. Secure this device before continuing.')
+        }
+      } else {
+        setPendingEmailLink(true)
+        setEmailAuthStep('link')
+        setEmailAuthNotice('Email verified. Link the Starknet account you want KudiRoll to use.')
+      }
+    } catch (error) {
+      setEmailAuthNotice(readableError(error))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function createPasskey() {
     let prfSecret: Uint8Array | null = null
     try {
       setBusy('passkey-register')
@@ -371,11 +422,25 @@ export function App() {
       const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
       setAccountData(result.account)
       alert(prfSecret ? 'Passkey created and verified for private-wallet recovery.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
+      return true
     } catch (error) {
       alert(`Could not create the passkey. ${readableError(error)}`)
+      return false
     } finally {
       prfSecret?.fill(0)
       setBusy('')
+    }
+  }
+
+  async function registerPasskey() {
+    await createPasskey()
+  }
+
+  async function secureEmailAccount() {
+    if (await createPasskey()) {
+      setEmailAuthStep('request')
+      setEmailAuthNotice('')
+      setEnteredApp(true)
     }
   }
 
@@ -655,9 +720,20 @@ export function App() {
   if (!enteredApp) {
     return <SignInLanding
       theme={theme}
-      busy={busy === 'wallet' || busy === 'account'}
+      busy={Boolean(busy)}
       wallets={walletChoices}
       legalView={legalView}
+      emailConfigured={emailDeliveryConfigured}
+      email={emailAddress}
+      emailCode={emailCode}
+      emailStep={emailAuthStep}
+      emailNotice={emailAuthNotice}
+      onEmailChange={value => { setEmailAddress(value); setEmailAuthNotice('') }}
+      onEmailCodeChange={value => { setEmailCode(value.replace(/\D/g, '').slice(0, 6)); setEmailAuthNotice('') }}
+      onRequestEmail={requestEmailSignIn}
+      onVerifyEmail={verifyEmailSignIn}
+      onResetEmail={() => { setEmailAuthStep('request'); setEmailCode(''); setEmailAuthNotice(''); setPendingEmailLink(false) }}
+      onSecureDevice={secureEmailAccount}
       onPasskeySignIn={signInWithPasskey}
       onRefreshWallets={() => walletStore._refreshInjectedWallets()}
       onSignIn={signIn}
@@ -751,6 +827,17 @@ function SignInLanding({
   busy,
   wallets,
   legalView,
+  emailConfigured,
+  email,
+  emailCode,
+  emailStep,
+  emailNotice,
+  onEmailChange,
+  onEmailCodeChange,
+  onRequestEmail,
+  onVerifyEmail,
+  onResetEmail,
+  onSecureDevice,
   onPasskeySignIn,
   onRefreshWallets,
   onSignIn,
@@ -762,6 +849,17 @@ function SignInLanding({
   busy: boolean
   wallets: WalletWithStarknetFeatures[]
   legalView: 'terms' | 'privacy' | null
+  emailConfigured: boolean
+  email: string
+  emailCode: string
+  emailStep: 'request' | 'verify' | 'link' | 'secure'
+  emailNotice: string
+  onEmailChange: (value: string) => void
+  onEmailCodeChange: (value: string) => void
+  onRequestEmail: () => void
+  onVerifyEmail: () => void
+  onResetEmail: () => void
+  onSecureDevice: () => void
   onPasskeySignIn: () => void
   onRefreshWallets: () => void
   onSignIn: (wallet?: WalletWithStarknetFeatures) => void
@@ -796,11 +894,27 @@ function SignInLanding({
       <section className="signInCard" aria-labelledby="sign-in-title">
         <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
         <h1 id="sign-in-title">Sign in to continue</h1>
-        <p className="signInBody">Use your device passkey to sign in. Private transactions still use Ready X during the embedded signer rollout.</p>
+        <p className="signInBody">{emailConfigured ? emailStep === 'verify' ? 'Enter the code sent to your email.' : emailStep === 'link' ? 'Your email is verified. Link a Starknet account once to finish setup.' : emailStep === 'secure' ? 'Protect this account with your device before continuing.' : 'Use your work email. KudiRoll keeps transaction approval separate from email access.' : 'Email sign-in is being activated. Use your existing passkey in the meantime.'}</p>
 
-        <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
-        <details className="walletMigration"><summary>First time? Link an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>
-        <p className="signInHint">Passkeys remove the extension from sign-in today. Extension-free transaction signing is being certified separately before Mainnet release.</p>
+        {emailConfigured && emailStep === 'request' && <div className="emailAuth">
+          <label>Work email<input type="email" value={email} onChange={event => onEmailChange(event.target.value)} placeholder="you@company.com" autoComplete="email" disabled={busy} /></label>
+          <button className="signInPrimary" onClick={onRequestEmail} disabled={busy || !email.trim()}><span>{busy ? 'Sending code...' : 'Continue with email'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
+        </div>}
+        {emailConfigured && emailStep === 'verify' && <div className="emailAuth">
+          <label>Six-digit code<input value={emailCode} onChange={event => onEmailCodeChange(event.target.value)} placeholder="000000" inputMode="numeric" autoComplete="one-time-code" disabled={busy} /></label>
+          <button className="signInPrimary" onClick={onVerifyEmail} disabled={busy || emailCode.length !== 6}><span>{busy ? 'Verifying...' : 'Verify and continue'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
+          <button className="signInAlternative" onClick={onResetEmail} disabled={busy}>Use a different email</button>
+        </div>}
+        {emailConfigured && emailStep === 'link' && (wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Link ' + candidate.name + ' once'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>)}
+        {emailConfigured && emailStep === 'secure' && <div className="emailAuth">
+          <button className="signInPrimary" onClick={onSecureDevice} disabled={busy}><span>{busy ? 'Securing device...' : 'Secure this device'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
+          <p className="signInHint">Your device credential protects wallet recovery and future embedded signing. Email alone cannot approve transactions or recover funds.</p>
+        </div>}
+        {!emailConfigured && <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>}
+        {emailConfigured && emailStep === 'request' && <button className="signInAlternative" onClick={onPasskeySignIn} disabled={busy}>Use passkey instead</button>}
+        {emailConfigured && emailStep === 'request' && <details className="walletMigration"><summary>Set up with an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>}
+        {emailNotice && <p className="emailAuthNotice" role="status">{emailNotice}</p>}
+        <p className="signInHint">Email opens your workspace. Device security and Ready X protect wallet actions during the embedded signer rollout.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>

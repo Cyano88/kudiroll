@@ -16,7 +16,7 @@ KudiRoll defaults to its local file stores. PostgreSQL activation is explicit an
 3. Run `npm run db:migrate` from the reviewed release artifact.
 4. Enter a maintenance window that prevents account and payroll writes.
 5. Run `npm run db:import-accounts`. Import fails if the PostgreSQL account table is not empty.
-6. Set `KUDIROLL_ACCOUNT_BACKEND=postgres` and `KUDIROLL_AUTH_BACKEND=postgres`, deploy one instance, and require `/api/health` to report HTTP 200, schema version 1 and both backends as PostgreSQL.
+6. Set `KUDIROLL_ACCOUNT_BACKEND=postgres` and `KUDIROLL_AUTH_BACKEND=postgres`, deploy one instance, and require `/api/health` to report HTTP 200, schema version 2 and both backends as PostgreSQL.
 7. Test sign-in, session revocation, team reads, idempotent pay-run replay, account deletion and restart persistence before ending maintenance.
 8. Take and verify a managed backup before increasing replicas.
 

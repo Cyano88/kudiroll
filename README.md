@@ -2,13 +2,13 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. The initial versioned API boundary is documented in [docs/API.md](docs/API.md); production traffic cutover and external developer credentials are not released yet.
+KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). Passkey-first login, two-credential recovery readiness, typed STRK20 operations, and the KudiRoll Rail API are implemented and tested. PostgreSQL schema plus durable authentication support are implemented locally, but Railway provisioning, account/payroll cutover, embedded-wallet Mainnet certification, and operational controls remain release gates. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Email-first OTP access, first-time verified-email wallet linking, passkey security, typed STRK20 operations and rollback-safe routing are implemented and tested; email delivery credentials, embedded-wallet Mainnet certification and operational drills remain release gates. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
-1. Sign in with a discoverable KudiRoll passkey. Existing users link a Starknet wallet once, then enroll at least two passkeys before embedded-wallet creation can become available.
+1. Enter a work email and verify the six-digit code. A new user links an existing Starknet account once and secures the account with a device passkey; returning users can use email or their passkey.
 2. Create separate teams for the groups the business pays.
 3. Save each worker's name, registered Starknet address, and default private-USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
@@ -23,16 +23,16 @@ Every receiving address must first be registered with the compatible privacy wal
 
 ## Account persistence
 
-- A wallet signature or verified passkey creates a 12-hour HTTP-only session; only a hash of the bearer token is persisted.
+- A verified email, wallet signature or passkey creates a 12-hour HTTP-only session; only a hash of the bearer token is persisted.
 - WebAuthn and wallet challenges are single-use, expire automatically, survive service restarts, and are rate limited.
 - Recovery readiness requires two passkeys. Revocation requires fresh proof from a different credential and cannot reduce the account below two passkeys.
 - Teams, workers, pay-run snapshots, and public shield references are isolated by wallet address.
 - Local development persists data atomically in `.data/kudiroll.json`; the file is ignored by Git.
 - A server restart preserves account sessions and unexpired authentication ceremonies on the mounted volume.
-- The Railway public alpha runs one replica with `.data` on a persistent volume. PostgreSQL-backed hashed sessions and challenges are available behind `KUDIROLL_AUTH_BACKEND=postgres` after `npm run db:migrate`; accounts and payroll remain file-backed, so multi-instance use is still prohibited.
-- Encrypted PostgreSQL account storage and a fail-closed importer are implemented behind `KUDIROLL_ACCOUNT_BACKEND=postgres`; follow [the database cutover runbook](docs/DATABASE.md). Production activation still requires a managed database, maintenance import, backup/restore and reverse-migration drill.
+- Railway production uses PostgreSQL for encrypted account records, hashed sessions and single-use challenges. Schema migration 2 adds email sessions and onboarding challenges without giving email signing or recovery authority.
+- Follow [the database cutover runbook](docs/DATABASE.md) for local activation and the remaining backup/restore and reverse-migration drills.
 
-KudiRoll does not store plaintext wallet private keys, viewing keys, notes, proofs, email codes, recovery secrets, or bank details. Provider-backed email verification is identity metadata only and cannot decrypt or recover wallet funds; worker names and payroll amounts still require production-grade database encryption, backup, retention, and access controls before public use.
+KudiRoll does not store plaintext wallet private keys, viewing keys, notes, proofs, email codes, recovery secrets, or bank details. Email codes are stored only as keyed hashes until expiry; email access cannot sign transactions, decrypt the embedded wallet, or recover funds.
 
 STRK20 pool fees are calculated and displayed by the privacy wallet at approval time. KudiRoll does not hard-code or promise a historical fee. The app applies a disclosed 0.01 USDC product minimum and lets wallet simulation reject insufficient public USDC or fee allowance.
 

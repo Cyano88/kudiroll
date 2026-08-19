@@ -968,6 +968,33 @@ label, summary { color: var(--kr-muted); }
   box-shadow: 0 12px 26px color-mix(in srgb, var(--kr-brand) 24%, transparent);
 }
 .signInPrimary:hover { background: color-mix(in srgb, var(--kr-brand-strong) 92%, #000); }
+.emailAuth { display: grid; gap: 10px; margin-top: 24px; }
+.emailAuth .signInPrimary { margin-top: 0; }
+.emailAuth label { display: grid; gap: 8px; color: var(--kr-muted); font-size: .67rem; font-weight: 800; }
+.emailAuth input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--kr-border);
+  border-radius: 12px;
+  padding: 0 15px;
+  color: var(--kr-text);
+  background: var(--kr-surface);
+  font: inherit;
+  font-size: .8rem;
+  outline: none;
+}
+.emailAuth input:focus { border-color: var(--kr-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--kr-brand) 13%, transparent); }
+.signInAlternative {
+  width: 100%;
+  margin-top: 12px;
+  border: 0;
+  color: var(--kr-brand-strong);
+  background: transparent;
+  font-size: .68rem;
+  font-weight: 800;
+}
+.emailAuth .signInAlternative { margin-top: 0; }
+.emailAuthNotice { margin: 12px 0 0; color: var(--kr-muted); font-size: .66rem; line-height: 1.5; text-align: center; }
 .signInPrimary > svg, .signInPrimary > .loadingRing {
   flex: 0 0 auto;
   width: 36px;

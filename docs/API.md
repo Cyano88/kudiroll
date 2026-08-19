@@ -6,7 +6,7 @@ KudiRoll Rail is the non-custodial payroll orchestration boundary behind the Kud
 
 - Base path: `/api/v1`
 - Network: Starknet Mainnet
-- Authentication: first-party KudiRoll session cookie only
+- Authentication: first-party KudiRoll session cookie created by verified email, wallet proof or passkey; recovery and destructive account actions require fresh passkey authentication
 - First-party cross-origin transport: implemented behind exact `KUDIRAIL_ALLOWED_ORIGINS`; set KudiRoll App's `VITE_KUDIRAIL_API_URL` to the HTTPS API origin
 - External API keys, OAuth clients, webhooks and third-party developer access: not released
 - Local settlement: NGN remains a separately gated Paycrest guided test and is not part of the private batch manifest
@@ -48,3 +48,5 @@ External access will not be enabled until tenant-scoped credentials, managed Pos
 The first-party application may run on a separate origin, but its request transport always includes API-hosted secure cookies and KudiRail accepts only explicitly allowlisted origins. Production app and API domains must remain same-site for the current `SameSite=Strict` session design; unrelated third-party origins require the future scoped-credential flow instead of weakening cookies.
 
 KudiRoll production uses a same-origin gateway when `KUDIRAIL_UPSTREAM_URL` is configured. The browser continues calling KudiRoll paths, while the gateway forwards only `/api/account`, `/api/v1` and `/api/phase0` to KudiRail; it never forwards an `Authorization` header and never handles wallet signatures, viewing keys, notes or proofs. Removing the variable restores the bundled backend during the cutover window.
+
+Email-first access uses `POST /api/account/email/authentication/request` and `POST /api/account/email/authentication/verify`. Unknown emails receive the same OTP flow, then `POST /api/account/email/link` binds the verified email to a freshly wallet-authenticated Starknet account once; raw codes are never stored, and email sessions have no transaction-signing, wallet-decryption or recovery authority.
