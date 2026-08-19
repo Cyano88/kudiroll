@@ -1,4 +1,18 @@
 import { useEffect, useState } from 'react'
+import {
+  ArrowRightIcon,
+  ArrowsRightLeftIcon,
+  BuildingOffice2Icon,
+  ChartBarSquareIcon,
+  CheckIcon,
+  EllipsisHorizontalIcon,
+  HomeIcon,
+  MoonIcon,
+  SunIcon,
+  UserGroupIcon,
+  WalletIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline'
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import { decodePasskeyPrfInput, requestPasskeyPrf, splitPasskeyPrf } from './embedded-wallet/passkey-prf'
 import { createStore } from '@starknet-io/get-starknet-discovery'
@@ -782,8 +796,8 @@ function SignInLanding({
         <h1 id="sign-in-title">Sign in to continue</h1>
         <p className="signInBody">Use your device passkey to sign in. Private transactions still use Ready X during the embedded signer rollout.</p>
 
-        <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span><i aria-hidden="true">→</i></button>
-        <details className="walletMigration"><summary>First time? Link an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span><i aria-hidden="true">→</i></button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>
+        <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
+        <details className="walletMigration"><summary>First time? Link an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>
         <p className="signInHint">Passkeys remove the extension from sign-in today. Extension-free transaction signing is being certified separately before Mainnet release.</p>
 
         <div className="signInRule" />
@@ -1131,7 +1145,7 @@ function ProductShell({
         {nav.map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => onSection(item.id)}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}
       </nav>
       <div className="railBottom">
-        <button className={section === 'settings' ? 'active' : ''} onClick={() => onSection('settings')}><AppIcon name="people" /><span>Business profile</span></button>
+        <button className={section === 'settings' ? 'active' : ''} onClick={() => onSection('settings')}><AppIcon name="building" /><span>Business profile</span></button>
       </div>
     </aside>
 
@@ -1255,35 +1269,40 @@ function ProductShell({
 
     {mobileMoreOpen && <div className="mobileMoreBackdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setMobileMoreOpen(false) }}>
       <section id="mobile-more-menu" className="mobileMoreSheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
-        <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu">×</button></div>
-        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and guided Naira testing</small></span><i>→</i></button>
-        <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="people" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><i>→</i></button>
+        <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu"><XMarkIcon aria-hidden="true" /></button></div>
+        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and guided Naira testing</small></span><ArrowRightIcon aria-hidden="true" /></button>
+        <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><ArrowRightIcon aria-hidden="true" /></button>
       </section>
     </div>}
-    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="route" /><span>More</span></button></nav>
+    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="more" /><span>More</span></button></nav>
   </div>
 }
 
-type IconName = 'home' | 'people' | 'wallet' | 'activity' | 'route'
+type IconName = 'home' | 'people' | 'wallet' | 'activity' | 'route' | 'building' | 'more'
 
 function ThemeToggle({ theme, onToggle, className = '' }: { theme: Theme; onToggle: () => void; className?: string }) {
   const next = theme === 'light' ? 'dark' : 'light'
   return <button type="button" className={`themeToggle ${className}`.trim()} onClick={onToggle} aria-label={`Switch to ${next} theme`} title={`Switch to ${next} theme`}>
-    {theme === 'light'
-      ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.4A8.4 8.4 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z" /></svg>
-      : <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>}
+    {theme === 'light' ? <MoonIcon aria-hidden="true" /> : <SunIcon aria-hidden="true" />}
   </button>
 }
 
 function AppIcon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5.5 9.5V21h13V9.5M9 21v-7h6v7" /></>,
-    people: <><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.4-4 2.1-6 5.5-6s5.1 2 5.5 6M16 5.5a3 3 0 0 1 0 5.8M16 14c3 0 4.5 2 4.8 5" /></>,
-    wallet: <><path d="M3 6.5h15a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H5a2 2 0 0 1-2-2z" /><path d="M3 7V5a2 2 0 0 1 2-2h12M16 12h5v5h-5a2.5 2.5 0 0 1 0-5Z" /></>,
-    activity: <><path d="M4 20V10M10 20V4M16 20v-7M22 20V7" /></>,
-    route: <><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M8.5 6H14a4 4 0 0 1 4 4v5.5M15.5 18H10a4 4 0 0 1-4-4V8.5" /></>,
+  const icons: Record<IconName, typeof HomeIcon> = {
+    home: HomeIcon,
+    people: UserGroupIcon,
+    wallet: WalletIcon,
+    activity: ChartBarSquareIcon,
+    route: ArrowsRightLeftIcon,
+    building: BuildingOffice2Icon,
+    more: EllipsisHorizontalIcon,
   }
-  return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
+  const Icon = icons[name]
+  return <Icon aria-hidden="true" />
+}
+
+function LoadingRing() {
+  return <span className="loadingRing" role="status" aria-label="Loading" />
 }
 
 function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
@@ -1291,7 +1310,7 @@ function EmptyState({ title, detail, action, onAction }: { title: string; detail
 }
 
 function StatusLine({ done, label }: { done: boolean; label: string }) {
-  return <div><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{label}</span></div>
+  return <div><i className={done ? 'done' : ''}>{done ? <CheckIcon aria-hidden="true" /> : null}</i><span>{label}</span></div>
 }
 
 function ProviderCard({ title, status, detail, tone }: { title: string; status: string; detail: string; tone: 'safe' | 'blocked' | 'neutral' }) {

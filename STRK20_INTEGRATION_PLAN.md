@@ -181,7 +181,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 12. Phase 5 — production infrastructure and security
 
-**Status:** PostgreSQL foundation, durable authentication adapter and encrypted account adapter implemented locally 2026-08-18; Railway provisioning, live database integration tests, backup/restore, reverse migration and production activation remain pending.
+**Status:** managed PostgreSQL, durable authentication, encrypted account persistence, schema migration 001, and Railway production activation are complete as of 2026-08-18. Backup/restore, reverse migration, multi-instance restart testing, and the final operating drill remain pending.
 
 1. Replace `src/server/account-store.ts` JSON storage with managed PostgreSQL, schema migrations, encrypted sensitive columns, retention, deletion, backups, and a restore drill.
 2. Replace the `Map` in `src/server/account-router.ts:10` with durable revocable sessions, rotation, expiry, secure cookies, origin/CSRF controls, and per-wallet/IP rate limits.
@@ -193,7 +193,9 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Implemented slice 2026-08-18:** migration 001 creates per-wallet account rows plus hashed session and single-use challenge tables; `KUDIROLL_AUTH_BACKEND=postgres` explicitly enables the durable auth adapter only after migration; `/api/health` reports configuration and reachability without exposing the database URL. The file backend remains the rollback default, and the app must remain single-replica until account/payroll persistence is cut over and migration-tested.
 
-**Second persistence slice 2026-08-18:** account, team, worker, pay-run, public shield, passkey metadata and already-encrypted wallet-backup records can be imported into per-wallet PostgreSQL rows. Each row is wrapped again with AES-256-GCM using wallet-address authenticated data; SQL rejects plaintext-shaped rows, writes are serialized transactionally across instances, unchanged tenants are not rewritten, imports require an empty target, and health returns 503 when a selected database backend is unreachable or below schema version 1. Activation remains blocked until a real PostgreSQL integration test, backup/restore and reverse-migration drill pass; switching back to the old file after new database writes would restore stale data.
+**Second persistence slice 2026-08-18:** account, team, worker, pay-run, public shield, passkey metadata and already-encrypted wallet-backup records can be imported into per-wallet PostgreSQL rows. Each row is wrapped again with AES-256-GCM using wallet-address authenticated data; SQL rejects plaintext-shaped rows, writes are serialized transactionally across instances, unchanged tenants are not rewritten, imports require an empty target, and health returns 503 when a selected database backend is unreachable or below schema version 1. Production activation proceeded after live schema health and database integration checks; backup/restore and reverse-migration drills remain required, and switching back to the old file after new database writes would restore stale data.
+
+**Production activation 2026-08-18:** Railway runs the PostgreSQL account and authentication backends with schema version 1. Health reports the exact release commit and database readiness. The remaining resilience drills above are required before the infrastructure phase is called fully complete.
 
 **Exit:** the deployed service tolerates restart/multi-instance operation, protects sensitive payroll data, and proves which commit is live.
 
@@ -201,7 +203,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 13. Phase 6 — Mainnet certification and anti-stale deployment
 
-**Status:** public-alpha deployment portion complete 2026-08-15; Mainnet certification pending. Railway deploys `main` through `railway.json`, one replica uses a persistent `/app/.data` volume, `/api/health` reports the Git commit, and signed-out desktop/mobile smoke tests passed at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
+**Status:** public-alpha deployment and the production UI release candidate are complete locally as of 2026-08-19; Mainnet certification remains pending. Railway deploys `main` through `railway.json`, `/api/health` reports the Git commit, and signed-out desktop/mobile smoke tests pass at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
 
 1. Deploy only a CI-built artifact from the reviewed main commit; record artifact digest, commit SHA, environment, and deployment URL.
 2. Require post-deploy smoke tests and compare the live commit with GitHub before announcing a release.
@@ -209,6 +211,8 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 4. Verify each hash exists, succeeded, touched the canonical pool, and corresponds to the documented flow before placing it in `strk20.json`.
 5. Keep technical evidence sanitized: wallet/API versions, recipient count, token contract, simulation result, transaction hash, final status, application state, and recovery outcome.
 6. Test the public URL from a signed-out browser and mobile viewport; no conventional login or private invitation may block the product tour.
+
+**UI release candidate 2026-08-19:** all product surfaces use the official Heroicons React package, self-hosted Plus Jakarta Sans with its OFL license, persisted light and dark themes, responsive desktop/mobile navigation, accessible icon labels, and a reduced-motion-aware CSS loading ring with no arrow glyph. Automated browser sweeps cover sign-in, every main section, both themes, and the mobile More dialog.
 
 **Exit:** public URL is current, stable, independently openable, and `strk20.json` contains only verified evidence.
 

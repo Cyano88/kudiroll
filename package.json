@@ -17,6 +17,7 @@
     "db:import-accounts": "node --import tsx scripts/import-account-file.ts"
   },
   "dependencies": {
+    "@heroicons/react": "2.2.0",
     "@simplewebauthn/browser": "13.3.0",
     "@simplewebauthn/server": "13.3.2",
     "@starknet-io/get-starknet-discovery": "6.0.4",
