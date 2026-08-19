@@ -2,7 +2,7 @@
 
 Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
 
-KudiRoll is being separated into **KudiRoll Rail**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. The initial versioned API boundary is documented in [docs/API.md](docs/API.md); external developer credentials are not released yet.
+KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. The initial versioned API boundary is documented in [docs/API.md](docs/API.md); production traffic cutover and external developer credentials are not released yet.
 
 > **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). Passkey-first login, two-credential recovery readiness, typed STRK20 operations, and the KudiRoll Rail API are implemented and tested. PostgreSQL schema plus durable authentication support are implemented locally, but Railway provisioning, account/payroll cutover, embedded-wallet Mainnet certification, and operational controls remain release gates. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
