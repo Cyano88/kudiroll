@@ -203,7 +203,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 13. Phase 6 — Mainnet certification and anti-stale deployment
 
-**Status:** public-alpha deployment and the production UI release candidate are complete locally as of 2026-08-19; Mainnet certification remains pending. Railway deploys `main` through `railway.json`, `/api/health` reports the Git commit, and signed-out desktop/mobile smoke tests pass at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
+**Status:** public-alpha deployment and the production UI release are live on Railway as of 2026-08-19; Mainnet certification remains pending. Railway deploys `main` through `railway.json`, `/api/health` reports the explicitly pinned Git commit, and signed-out desktop/mobile smoke tests pass at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
 
 1. Deploy only a CI-built artifact from the reviewed main commit; record artifact digest, commit SHA, environment, and deployment URL.
 2. Require post-deploy smoke tests and compare the live commit with GitHub before announcing a release.
@@ -212,7 +212,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 5. Keep technical evidence sanitized: wallet/API versions, recipient count, token contract, simulation result, transaction hash, final status, application state, and recovery outcome.
 6. Test the public URL from a signed-out browser and mobile viewport; no conventional login or private invitation may block the product tour.
 
-**UI release candidate 2026-08-19:** all product surfaces use the official Heroicons React package, self-hosted Plus Jakarta Sans with its OFL license, persisted light and dark themes, responsive desktop/mobile navigation, accessible icon labels, and a reduced-motion-aware CSS loading ring with no arrow glyph. Automated browser sweeps cover sign-in, every main section, both themes, and the mobile More dialog.
+**Production UI release 2026-08-19:** all product surfaces use the official Heroicons React package, self-hosted Plus Jakarta Sans with its OFL license, persisted light and dark themes, responsive desktop/mobile navigation, accessible icon labels, and a reduced-motion-aware CSS loading ring with no arrow glyph. Automated browser sweeps cover sign-in, every main section, both themes, and the mobile More dialog; Railway served the matching production asset hashes before the final exact-SHA release check.
 
 **Exit:** public URL is current, stable, independently openable, and `strk20.json` contains only verified evidence.
 
