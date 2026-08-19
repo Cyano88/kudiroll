@@ -35,6 +35,7 @@ import type { TreasuryReadiness, TreasuryShieldRecord } from './treasury-readine
 import { startInjectedWalletDiscovery } from './wallet-discovery'
 import { createRailPayRun, resolveUnknownRailPayRun, updateRailPayRun, verifyRailPayRun } from './rail/client'
 import type { PayRunExecutionManifest } from './rail/contracts'
+import { kudiRailUrl } from './rail/api-origin'
 
 // Keep this picker Starknet-native. The default EIP-6963 adapter can surface
 // unrelated EVM providers that cannot run KudiRoll's STRK20 flows.
@@ -229,9 +230,10 @@ export function App() {
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), 12_000)
       try {
-        const response = await fetch(path, {
+        const response = await fetch(kudiRailUrl(path, import.meta.env.VITE_KUDIRAIL_API_URL), {
           ...init,
           cache: 'no-store',
+          credentials: 'include',
           headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
           signal: controller.signal,
         })
@@ -413,7 +415,7 @@ export function App() {
   }
 
   async function accountJson(path: string, init: RequestInit = {}) {
-    const response = await fetch(path, {
+    const response = await fetch(kudiRailUrl(path, import.meta.env.VITE_KUDIRAIL_API_URL), {
       ...init,
       credentials: 'include',
       headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },

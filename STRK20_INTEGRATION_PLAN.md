@@ -231,7 +231,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 14A. Phase 7A — KudiRoll Rail extraction
 
-**Status:** first and second boundaries implemented locally 2026-08-18; external developer access pending.
+**Status:** logical API boundaries implemented 2026-08-18; physical extraction transport implemented locally 2026-08-19; separate KudiRail repository/deployment and external developer access remain pending.
 
 1. Mount `/api/v1` as a separately versioned rail surface while retaining `/api/account` for identity, teams, recovery and transitional finality routes.
 2. Require persisted idempotency for pay-run creation and reject reuse with request drift.
@@ -241,6 +241,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 6. **Done locally 2026-08-18:** finality and fresh-passkey unknown-outcome recovery now run through `/api/v1`; legacy account routes delegate to the same finality service for rollback compatibility.
 7. **Done locally 2026-08-18:** `src/rail/client.ts` owns the versioned payroll paths and KudiRoll App consumes it instead of constructing raw payroll URLs.
 8. **HTTP contract gate done locally 2026-08-18:** an authenticated in-process server test exercises capability discovery, session isolation, pay-run creation, manifest privacy and idempotent replay. Physical frontend extraction still waits for production database isolation.
+9. **Physical split foundation done locally 2026-08-19:** KudiRoll resolves every server request through a validated `VITE_KUDIRAIL_API_URL`, includes API-hosted credentials, and KudiRail enforces an exact `KUDIRAIL_ALLOWED_ORIGINS` policy with tested preflight and hostile-origin rejection. Same-origin fallback remains the production rollback until the separate service passes database, WebAuthn and session cutover drills.
 
 **Manual check:** create one draft from KudiRoll App, confirm `/api/v1` returns client custody, confirm the manifest contains no worker name or secret, simulate without submission, refresh the account and verify exactly one pay-run record exists.
 

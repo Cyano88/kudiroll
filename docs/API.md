@@ -7,7 +7,8 @@ KudiRoll Rail is the non-custodial payroll orchestration boundary behind the Kud
 - Base path: `/api/v1`
 - Network: Starknet Mainnet
 - Authentication: first-party KudiRoll session cookie only
-- External API keys, OAuth clients, webhooks, managed PostgreSQL and cross-origin developer access: not released
+- First-party cross-origin transport: implemented behind exact `KUDIRAIL_ALLOWED_ORIGINS`; set KudiRoll App's `VITE_KUDIRAIL_API_URL` to the HTTPS API origin
+- External API keys, OAuth clients, webhooks and third-party developer access: not released
 - Local settlement: NGN remains a separately gated Paycrest guided test and is not part of the private batch manifest
 
 `GET /api/v1` returns the live capability declaration. Do not infer unavailable corridors or external developer access from this document.
@@ -43,3 +44,5 @@ The framework-neutral client in `src/rail/client.ts` owns these paths for KudiRo
 ## Planned production developer surface
 
 External access will not be enabled until tenant-scoped credentials, managed PostgreSQL, database-enforced idempotency, signed webhooks, rate limits, revocation, audit logs, CORS policy and backup/restore tests are complete.
+
+The first-party application may run on a separate origin, but its request transport always includes API-hosted secure cookies and KudiRail accepts only explicitly allowlisted origins. Production app and API domains must remain same-site for the current `SameSite=Strict` session design; unrelated third-party origins require the future scoped-credential flow instead of weakening cookies.

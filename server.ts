@@ -6,6 +6,7 @@ import { createAccountRouter } from './src/server/account-router'
 import { createRailRouter } from './src/server/rail-router'
 import { databaseReadiness, persistenceConfig } from './src/server/database'
 import { bootstrapAccountStore } from './src/server/account-bootstrap'
+import { createApiOriginPolicy } from './src/server/origin-policy'
 
 config({ path: '.env.local', quiet: true })
 config({ path: '.env', quiet: true })
@@ -23,11 +24,12 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site')
   res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; connect-src 'self' https: wss:; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   next()
 })
+app.use('/api', createApiOriginPolicy())
 app.use(express.json({ limit: '32kb' }))
 app.get('/api/health', async (_req, res) => {
   const persistence = persistenceConfig()
