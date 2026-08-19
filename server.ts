@@ -39,7 +39,7 @@ app.get('/api/health', async (_req, res) => {
     service: 'kudiroll',
     network: 'starknet-mainnet',
     persistence: { accounts: persistence.accountBackend, authentication: persistence.authBackend, database },
-    release: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.KUDIROLL_RELEASE_SHA || 'development',
+    release: process.env.KUDIROLL_RELEASE_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || 'development',
     environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
   })
 })
