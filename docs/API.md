@@ -46,3 +46,5 @@ The framework-neutral client in `src/rail/client.ts` owns these paths for KudiRo
 External access will not be enabled until tenant-scoped credentials, managed PostgreSQL, database-enforced idempotency, signed webhooks, rate limits, revocation, audit logs, CORS policy and backup/restore tests are complete.
 
 The first-party application may run on a separate origin, but its request transport always includes API-hosted secure cookies and KudiRail accepts only explicitly allowlisted origins. Production app and API domains must remain same-site for the current `SameSite=Strict` session design; unrelated third-party origins require the future scoped-credential flow instead of weakening cookies.
+
+KudiRoll production uses a same-origin gateway when `KUDIRAIL_UPSTREAM_URL` is configured. The browser continues calling KudiRoll paths, while the gateway forwards only `/api/account`, `/api/v1` and `/api/phase0` to KudiRail; it never forwards an `Authorization` header and never handles wallet signatures, viewing keys, notes or proofs. Removing the variable restores the bundled backend during the cutover window.

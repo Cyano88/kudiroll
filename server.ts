@@ -7,6 +7,7 @@ import { createRailRouter } from './src/server/rail-router'
 import { databaseReadiness, persistenceConfig } from './src/server/database'
 import { bootstrapAccountStore } from './src/server/account-bootstrap'
 import { createApiOriginPolicy } from './src/server/origin-policy'
+import { createKudiRailProxy, normalizeKudiRailUpstream, readKudiRailHealth } from './src/server/kudirail-proxy'
 
 config({ path: '.env.local', quiet: true })
 config({ path: '.env', quiet: true })
@@ -16,6 +17,7 @@ await bootstrapAccountStore()
 const app = express()
 const port = Number(process.env.PORT || 4173)
 const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
+const kudiRailUpstream = normalizeKudiRailUpstream(process.env.KUDIRAIL_UPSTREAM_URL)
 
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
@@ -32,6 +34,22 @@ app.use((_req, res, next) => {
 app.use('/api', createApiOriginPolicy())
 app.use(express.json({ limit: '32kb' }))
 app.get('/api/health', async (_req, res) => {
+  if (kudiRailUpstream) {
+    try {
+      const rail = await readKudiRailHealth(kudiRailUpstream)
+      return res.json({
+        ok: true,
+        service: 'kudiroll',
+        network: 'starknet-mainnet',
+        backend: 'kudirail',
+        dependency: { service: rail.service, ok: rail.ok, release: rail.release, persistence: rail.persistence },
+        release: process.env.KUDIROLL_RELEASE_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || 'development',
+        environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
+      })
+    } catch {
+      return res.status(503).json({ ok: false, service: 'kudiroll', backend: 'kudirail', error: 'KudiRail health check failed.' })
+    }
+  }
   const persistence = persistenceConfig()
   const database = await databaseReadiness()
   const databaseRequired = persistence.accountBackend === 'postgres' || persistence.authBackend === 'postgres'
@@ -45,9 +63,14 @@ app.get('/api/health', async (_req, res) => {
     environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
   })
 })
-app.use('/api/phase0', createPhase0Router())
-app.use('/api/v1', createRailRouter())
-app.use('/api/account', createAccountRouter())
+if (kudiRailUpstream) {
+  const proxy = createKudiRailProxy(kudiRailUpstream)
+  app.use(['/api/phase0', '/api/v1', '/api/account'], proxy)
+} else {
+  app.use('/api/phase0', createPhase0Router())
+  app.use('/api/v1', createRailRouter())
+  app.use('/api/account', createAccountRouter())
+}
 
 if (process.env.NODE_ENV === 'production') {
   const dist = resolve('dist')
