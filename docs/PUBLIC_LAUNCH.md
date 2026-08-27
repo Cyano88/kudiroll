@@ -1,6 +1,6 @@
 # Public launch
 
-KudiRoll is currently a private alpha. This checklist is the release gate; passing a frontend build alone does not make the payroll service production-ready.
+KudiRoll is a public alpha backed by the standalone KudiRail service and managed PostgreSQL. This checklist separates verified production infrastructure from the wallet, email-delivery, resilience, and settlement evidence still required before a general-availability claim.
 
 ## Recovered baseline
 
@@ -15,17 +15,18 @@ KudiRoll is currently a private alpha. This checklist is the release gate; passi
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
-| Reproducible source and CI | In progress | First reviewed commit, public remote, CI green, generated artifacts excluded. |
-| License and contribution policy | Blocked on owner choice | Explicit license, contribution guide, code of conduct if accepting contributions. |
-| Live private payroll | Blocked | One successful batch with at least two Ready-registered recipients and final transaction status. |
-| Production data | Blocked | Managed encrypted database, migrations, backups, restore drill, retention and deletion procedure. |
-| Production sessions | Blocked | Durable session store, key rotation, revocation, rate limits, and abuse controls. |
-| Hosting | Blocked | HTTPS deployment, health monitoring, logs without payroll data, rollback procedure, and secret management. |
-| Security and privacy | Blocked | Threat review, dependency review, security contact, privacy policy, terms, and incident response. |
-| Paycrest settlement | Pilot | Deposit detection, payout completion, expiry, refund, failure, reconciliation, and recovery certification. |
-| Starknet ecosystem package | Blocked by launch gates | Public URL, repository, architecture, compatibility matrix, demo, and verified transaction reference. |
+| Reproducible source and CI | Complete | Public repositories, reviewed history, green CI, clean builds, and generated artifacts excluded. |
+| License and contribution policy | Complete | MIT license, contribution guide, and private security-reporting process are published. |
+| Email-first access | Activation pending | Add `RESEND_API_KEY` and `KUDIROLL_EMAIL_FROM` to KudiRail, redeploy, then prove request, OTP verification, returning sign-in, first-time wallet linking, and passkey upgrade. |
+| Live private payroll | Manual gate | Submit one smallest-safe Mainnet batch to at least two Ready-registered recipients and verify the STRK20 pool event and final application status. |
+| Production data | Operational drill pending | Encrypted PostgreSQL schema 2 is live; complete managed backup/restore, reverse migration, retention, deletion, and encryption-key rotation drills. |
+| Production sessions | Recovery drill pending | Durable hashed sessions, single-use challenges, revocation, and per-process rate limits are live; certify two-device passkey recovery and keep one KudiRail replica until distributed rate limiting is added. |
+| Hosting | Complete for public alpha | Both Railway services are HTTPS, health-gated, release-addressable, rollback-safe, and currently report healthy KudiRail/PostgreSQL dependencies. |
+| Security and privacy | Review pending | Security headers, origin policy, dependency audit, privacy/terms copy, and custody boundaries are implemented; complete an external threat review and incident-response drill. |
+| Paycrest settlement | Pilot | Deposit detection, payout completion, expiry, refund, failure, reconciliation, and recovery certification remain required before enabling new live orders. |
+| Starknet ecosystem package | In progress | Public URL, source, architecture, and compatibility documentation exist; add the sanitized demo and verified Mainnet transaction references. |
 
-Implemented security baseline: sensitive Paycrest routes require a wallet-signed session, provider history is isolated by refund wallet, provider order refunds are bound to the authenticated wallet, and pay runs cannot skip preparation before submission. These controls reduce application risk but do not replace production rate limiting, durable sessions, monitoring, or chain-receipt verification.
+Implemented security baseline: sensitive Paycrest routes require a wallet-signed session, provider history is isolated by refund wallet, provider order refunds are bound to the authenticated wallet, and pay runs cannot skip preparation before submission. Authentication and recovery endpoints are rate limited, sessions and single-use challenges are durable and hashed, and pay-run finalization requires an event from the configured STRK20 pool; remaining drills are named in the table above.
 
 ## Safe release sequence
 

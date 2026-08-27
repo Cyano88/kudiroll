@@ -15,9 +15,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import { decodePasskeyPrfInput, requestPasskeyPrf, splitPasskeyPrf } from './embedded-wallet/passkey-prf'
-import { createStore } from '@starknet-io/get-starknet-discovery'
 import type { WalletWithStarknetFeatures } from '@starknet-io/get-starknet-wallet-standard/features'
-import { constants, WalletAccountV6, walletV6 } from 'starknet'
+import type { WalletAccountV6 } from 'starknet'
 import {
   isStarknetAddress,
   requireStarknetMainnet,
@@ -36,10 +35,6 @@ import { startInjectedWalletDiscovery } from './wallet-discovery'
 import { createRailPayRun, resolveUnknownRailPayRun, updateRailPayRun, verifyRailPayRun } from './rail/client'
 import type { PayRunExecutionManifest } from './rail/contracts'
 import { kudiRailUrl } from './rail/api-origin'
-
-// Keep this picker Starknet-native. The default EIP-6963 adapter can surface
-// unrelated EVM providers that cannot run KudiRoll's STRK20 flows.
-const walletStore = createStore({ eip1193Adapters: [] })
 
 type Check = { ok: boolean; detail: string }
 type PublicProbe = {
@@ -137,7 +132,7 @@ export function App() {
   const [publicProbe, setPublicProbe] = useState<PublicProbe | null>(null)
   const [probeError, setProbeError] = useState('')
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null)
-  const [walletChoices, setWalletChoices] = useState<WalletWithStarknetFeatures[]>(() => walletStore.getWallets())
+  const [walletChoices, setWalletChoices] = useState<WalletWithStarknetFeatures[]>([])
   const [accountData, setAccountData] = useState<AccountData | null>(null)
   const [walletVersions, setWalletVersions] = useState<string[]>([])
   const [privateBalance, setPrivateBalance] = useState('Not checked')
@@ -186,14 +181,19 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    const update = (wallets: readonly WalletWithStarknetFeatures[]) => setWalletChoices([...wallets])
-    update(walletStore.getWallets())
-    const unsubscribe = walletStore.subscribe(update)
-    const stopDiscovery = startInjectedWalletDiscovery(walletStore)
-    return () => {
-      stopDiscovery()
-      unsubscribe()
-    }
+    let active = true
+    let stop = () => {}
+    // Wallet discovery is optional on the public sign-in screen. Load it after
+    // first paint, while every connection action remains capable of awaiting it.
+    void import('./wallet-runtime').then(({ walletStore }) => {
+      if (!active) return
+      const update = (wallets: readonly WalletWithStarknetFeatures[]) => setWalletChoices([...wallets])
+      update(walletStore.getWallets())
+      const unsubscribe = walletStore.subscribe(update)
+      const stopDiscovery = startInjectedWalletDiscovery(walletStore)
+      stop = () => { stopDiscovery(); unsubscribe() }
+    }).catch(() => {})
+    return () => { active = false; stop() }
   }, [])
 
   useEffect(() => {
@@ -298,26 +298,23 @@ export function App() {
   async function connectWallet(selectedWallet?: WalletWithStarknetFeatures): Promise<ConnectedWallet | null> {
     setBusy('wallet')
     try {
+      const { connectStarknetWallet, walletStore } = await import('./wallet-runtime')
+      const discoveredWallets = walletStore.getWallets()
       const choice = selectedWallet
+        ?? discoveredWallets.find(candidate => /ready/i.test(candidate.name))
         ?? walletChoices.find(candidate => /ready/i.test(candidate.name))
+        ?? discoveredWallets[0]
         ?? walletChoices[0]
       if (!choice) throw new Error('No Starknet wallet was detected. Install Ready X or Xverse, then refresh this page.')
-      const next = await withTimeout(
-        WalletAccountV6.connect({ nodeUrl: constants.NetworkName.SN_MAIN }, choice),
+      const connected = await withTimeout(
+        connectStarknetWallet(choice),
         60_000,
         'Wallet connection timed out. Reopen the wallet and try again.',
       )
-      requireStarknetMainnet(await walletV6.requestChainId(choice))
-      let versions: string[] = []
-      try {
-        versions = (await walletV6.supportedWalletApi(choice)).map(String)
-      } catch {
-        // Standard Starknet wallets can still authenticate and manage account data.
-        // Private payroll remains gated on an advertised STRK20 capability.
-      }
-      setWallet(next)
-      setWalletVersions(versions)
-      return next
+      requireStarknetMainnet(connected.chainId)
+      setWallet(connected.account)
+      setWalletVersions(connected.supportedApiVersions)
+      return connected.account
     } catch (error) {
       alert(readableError(error))
       return null
@@ -735,7 +732,7 @@ export function App() {
       onResetEmail={() => { setEmailAuthStep('request'); setEmailCode(''); setEmailAuthNotice(''); setPendingEmailLink(false) }}
       onSecureDevice={secureEmailAccount}
       onPasskeySignIn={signInWithPasskey}
-      onRefreshWallets={() => walletStore._refreshInjectedWallets()}
+      onRefreshWallets={() => { void import('./wallet-runtime').then(({ walletStore }) => walletStore._refreshInjectedWallets()) }}
       onSignIn={signIn}
       onOpenLegal={setLegalView}
       onCloseLegal={() => setLegalView(null)}

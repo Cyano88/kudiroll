@@ -22,12 +22,13 @@ const kudiRailUpstream = normalizeKudiRailUpstream(process.env.KUDIRAIL_UPSTREAM
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 app.use((_req, res, next) => {
+  const connectSources = process.env.NODE_ENV === 'production' ? "'self' https: wss:" : "'self' http: https: ws: wss:"
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
   res.setHeader('Cross-Origin-Resource-Policy', 'same-site')
-  res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; connect-src 'self' https: wss:; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+  res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'self'; connect-src ${connectSources}; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'`)
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
   next()
 })

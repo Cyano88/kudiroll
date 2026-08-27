@@ -232,7 +232,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 14A. Phase 7A — KudiRoll Rail extraction
 
-**Status:** logical API boundaries implemented 2026-08-18; standalone KudiRail repository and Railway service deployed 2026-08-19; KudiRoll traffic cutover and external developer access remain pending.
+**Status:** standalone KudiRail, PostgreSQL schema 2, first-party traffic cutover, and email-first identity code are deployed; email delivery activation, resilience drills, Mainnet wallet evidence, and external developer access remain pending.
 
 1. Mount `/api/v1` as a separately versioned rail surface while retaining `/api/account` for identity, teams, recovery and transitional finality routes.
 2. Require persisted idempotency for pay-run creation and reject reuse with request drift.
@@ -246,6 +246,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 10. **Standalone service done 2026-08-19:** public MIT source is at `https://github.com/Cyano88/kudirail`; Railway serves `https://kudirail-production.up.railway.app` from exact commit `342107a80823d0d2ad49be605b858bd9053db6e1`. Health proves PostgreSQL schema 1, client custody and exact release identity; CI, 33 server tests, typecheck/build, zero production vulnerabilities, allowlisted preflight and hostile-origin rejection pass. KudiRoll still uses its bundled same-origin backend until the WebAuthn/session cutover drill is complete.
 11. **Production cutover completed 2026-08-19:** KudiRoll now proxies only account, rail-v1 and phase0 JSON routes through `KUDIRAIL_UPSTREAM_URL`; cookies, origin, idempotency and `Set-Cookie` survive, caller authorization is stripped, failures return a no-sign/no-submit `502`, and health fails closed when KudiRail is unavailable. Railway deployment `6b469c86-ee39-4a6e-8f89-ffb864260dd5` proved app release `00ae6f1c501c32806b51e3393fb9525a30b2d595` against KudiRail release `342107a80823d0d2ad49be605b858bd9053db6e1` with PostgreSQL schema 1 and client custody. Removing the variable restores the bundled backend; signed-in passkey/session continuity remains the manual gate before deleting that rollback path.
 12. **Email-first identity backend deployed 2026-08-19; delivery activation pending:** KudiRoll App and KudiRail implement the same OTP, wallet-link and passkey boundary with PostgreSQL migration 2 and focused HTTP coverage. KudiRail deployment `1aec5125-630b-4a79-881a-3d5d657c6ad9` serves exact release `a5ee31ef0772757cb0b4d9994aeec248a2045edc`; health proves schema 2 and client custody. Local UI inspection proves email is the primary visible action and passkey remains a fallback/security primitive. Production delivery is blocked only on dedicated `RESEND_API_KEY` and `KUDIROLL_EMAIL_FROM`; a cryptographic code-signing secret is configured, and no placeholder sender credential will be deployed.
+13. **Public-product hardening completed locally 2026-08-27:** live health reconfirmed KudiRoll-to-KudiRail routing, exact releases, client custody and PostgreSQL schema 2. KudiRoll now isolates the Starknet Wallet Standard runtime in an asynchronous wallet chunk, reducing the initial production JavaScript from 635.54 kB to 236.43 kB while preserving Ready/Xverse discovery and typed `WalletAccountV6` behavior. KudiRail now publishes a complete secret-safe `.env.example`. Email delivery remains correctly unavailable until real Resend credentials are stored directly in Railway.
 
 **Manual check:** create one draft from KudiRoll App, confirm `/api/v1` returns client custody, confirm the manifest contains no worker name or secret, simulate without submission, refresh the account and verify exactly one pay-run record exists.
 
@@ -267,6 +268,8 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - No worker name, bank detail, viewing key, wallet secret, proof, note, OTP, recovery phrase, or production credential may enter git, public telemetry, demo fixtures, or `strk20.json`.
 
 ## 17. Open items and drift to re-verify
+
+- Production re-verification on 2026-08-27 confirmed both Railway services online, KudiRoll release `237f5586af55983251253b095e398b7fb5a640d9`, KudiRail release `a5ee31ef0772757cb0b4d9994aeec248a2045edc`, client custody, and PostgreSQL schema 2. `RESEND_API_KEY` and `KUDIROLL_EMAIL_FROM` remain absent; no placeholder delivery values were introduced.
 
 - get-starknet `next` moved from 6.0.3 to 6.0.4 on 2026-08-15; confirm the current WalletAccount guide and Ready behavior before installation.
 - `starknet@10.7.0` is now pinned because it aligns its bundled Wallet Standard v6 types with discovery 6.0.4; re-check before later upgrades.
