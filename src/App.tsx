@@ -885,13 +885,13 @@ function SignInLanding({
           <h2>Pay your people.<br />Keep payroll private.</h2>
           <p>Prepare team payments, review every amount, and use private USDC from one secure Starknet workspace.</p>
         </div>
-        <div className="signInTrust">Extension-free account access</div>
+        <div className="signInTrust">Secure wallet-linked access</div>
       </section>
 
       <section className="signInCard" aria-labelledby="sign-in-title">
         <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
         <h1 id="sign-in-title">Sign in to continue</h1>
-        <p className="signInBody">{emailConfigured ? emailStep === 'verify' ? 'Enter the code sent to your email.' : emailStep === 'link' ? 'Your email is verified. Link a Starknet account once to finish setup.' : emailStep === 'secure' ? 'Protect this account with your device before continuing.' : 'Use your work email. KudiRoll keeps transaction approval separate from email access.' : 'Email sign-in is being activated. Use your existing passkey in the meantime.'}</p>
+        <p className="signInBody">{emailConfigured ? emailStep === 'verify' ? 'Enter the code sent to your email.' : emailStep === 'link' ? 'Your email is verified. Connect Ready X to finish setup.' : emailStep === 'secure' ? 'Protect this account with your device before continuing.' : 'Use your work email. KudiRoll keeps transaction approval separate from email access.' : 'Email sign-in is being activated. Use your existing passkey in the meantime.'}</p>
 
         {emailConfigured && emailStep === 'request' && <div className="emailAuth">
           <label>Work email<input type="email" value={email} onChange={event => onEmailChange(event.target.value)} placeholder="you@company.com" autoComplete="email" disabled={busy} /></label>
@@ -902,16 +902,16 @@ function SignInLanding({
           <button className="signInPrimary" onClick={onVerifyEmail} disabled={busy || emailCode.length !== 6}><span>{busy ? 'Verifying...' : 'Verify and continue'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
           <button className="signInAlternative" onClick={onResetEmail} disabled={busy}>Use a different email</button>
         </div>}
-        {emailConfigured && emailStep === 'link' && (wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Link ' + candidate.name + ' once'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>)}
+        {emailConfigured && emailStep === 'link' && (wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Connect ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check again</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install Ready X extension</a></div>)}
         {emailConfigured && emailStep === 'secure' && <div className="emailAuth">
           <button className="signInPrimary" onClick={onSecureDevice} disabled={busy}><span>{busy ? 'Securing device...' : 'Secure this device'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
-          <p className="signInHint">Your device credential protects wallet recovery and future embedded signing. Email alone cannot approve transactions or recover funds.</p>
+          <p className="signInHint">Your device credential protects account recovery. Email alone cannot approve wallet transactions or recover funds.</p>
         </div>}
         {!emailConfigured && <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>}
         {emailConfigured && emailStep === 'request' && <button className="signInAlternative" onClick={onPasskeySignIn} disabled={busy}>Use passkey instead</button>}
-        {emailConfigured && emailStep === 'request' && <details className="walletMigration"><summary>Set up with an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Set up with ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><button className="walletInstall" onClick={onRefreshWallets}>Scan for Ready X</button><a href="https://ready.co/" target="_blank" rel="noreferrer">Install Ready X</a></div>}</details>}
+        {emailConfigured && emailStep === 'request' && <details className="walletMigration"><summary>Set up with an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Connect ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check again</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install Ready X extension</a></div>}</details>}
         {emailNotice && <p className="emailAuthNotice" role="status">{emailNotice}</p>}
-        <p className="signInHint">Email opens your workspace. Device security and Ready X protect wallet actions during the embedded signer rollout.</p>
+        <p className="signInHint">Email opens your workspace. Ready X stays in your control and approves every wallet transaction.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>

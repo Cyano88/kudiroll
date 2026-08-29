@@ -117,6 +117,7 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .walletMigration .walletChoices, .walletMigration .walletMissing { margin-top: 12px; }
 .walletInstall { display: grid; place-items: center; min-height: 54px; margin-top: 28px; border-radius: 8px; color: #fff; background: #22301f; font-size: .76rem; font-weight: 800; text-decoration: none; }
 .walletMissing { display: grid; gap: 9px; margin-top: 28px; text-align: center; }
+.walletMissing p { margin: 0; color: #747b70; font-size: .68rem; line-height: 1.5; }
 .walletMissing .walletInstall { width: 100%; margin-top: 0; }
 .walletMissing a { color: #566052; font-size: .68rem; font-weight: 800; }
 .signInHint { margin: 9px 0 0; color: #7c8378; font-size: .64rem; text-align: center; }
