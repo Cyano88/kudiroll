@@ -1239,20 +1239,17 @@ function ProductShell({
             <article className="balanceCard">
               <div className="metricHead"><span>Available to pay</span><AppIcon name="wallet" /></div>
               <strong>{privateBalanceUsdc === null ? '—' : privateBalanceUsdc.toFixed(6)}</strong>
-              <small>{wallet ? privateBalance : 'Connect your wallet to see your private USDC'}</small>
-              <div className="balanceActions">{!wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={onDisconnect}>Disconnect</button></>}</div>
+              <small>{!wallet ? 'Connect your wallet to see your private USDC' : privateBalanceUsdc === null ? privateBalance : 'Private USDC available for payroll'}</small>
+              <div className="balanceActions">{!wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={() => onSection('providers')}>Add funds</button></>}</div>
             </article>
             <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => onSection('workers')}>Manage teams</button></article>
           </div>
-
-          {shieldPanel}
 
           <section className="panel recentPanel">
             <div className="panelTitle"><div><span>Pay runs</span><h3>Recent payments</h3></div><button className="plainButton" onClick={() => onSection('activity')}>View history</button></div>
             {accountData?.payRuns.length ? <div className="orderList">{accountData.payRuns.slice(0, 3).map(run => <PayRunRow key={run.id} run={run} compact />)}</div> : <EmptyState title="No pay runs yet" detail="Create a team, select its workers, and save your first pay run." />}
           </section>
 
-          <section className="panel routePanel routeStrip"><div className="routeIcon"><AppIcon name="route" /></div><div><span>Guided product test</span><strong>Test how it works before your first payroll</strong><p>This test stays separate from business pay runs. If live testing is enabled, approving in Ready can move real USDC.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section>
         </div>
 
         <aside className="dashboardAside">
@@ -1271,7 +1268,7 @@ function ProductShell({
 
       {section === 'payroll' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); setDraftNotice('') }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
-        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Treasury ready' : 'Treasury not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the spendable private balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('overview')}>View treasury</button></div>
+        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Treasury ready' : 'Treasury not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the spendable private balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('providers')}>Manage funds</button></div>
         <section className="panel payrollComposer">
           {selectedTeam?.workers.length ? <>
             <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
@@ -1298,7 +1295,12 @@ function ProductShell({
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Optional settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Paycrest is not configured" detail="Private payroll and STRK20 history remain available. Configure Paycrest only when testing Naira settlement." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section>
       </div>}
 
-      {section === 'providers' && <div className="sectionStack"><section className="panel sectionIntro"><div><span className="panelKicker">Payment options</span><h2>How your team gets paid</h2><p>Choose a delivery method with a clear readiness state.</p></div><span className="statePill neutral">1 available · 1 test</span></section><div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Paycrest quotes, recipient verification, order creation, and status are connected for testing. End-to-end settlement is not certified." /><ProviderCard title="More local payouts" status="Coming later" tone="neutral" detail="Additional local payout routes will appear after complete end-to-end testing." /></div><section className="panel labCallout"><div><span className="panelKicker">Before your first payroll</span><h3>Test the Naira payout journey</h3><p>This guided test is separate from team payroll. A Ready approval can move real USDC when live testing is enabled.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section></div>}
+      {section === 'providers' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
+        {shieldPanel}
+        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Paycrest quotes, recipient verification, order creation, and status are connected for testing. End-to-end settlement is not certified." /><ProviderCard title="More local payouts" status="Coming later" tone="neutral" detail="Additional local payout routes will appear after complete end-to-end testing." /></div>
+        <section className="panel labCallout"><div><span className="panelKicker">Optional test</span><h3>Try a Naira payout</h3><p>This stays separate from your team payroll.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section>
+      </div>}
 
       {section === 'lab' && paycrestPilot}
 
@@ -1326,7 +1328,7 @@ function ProductShell({
           {!!accountData?.passkeys.length && <div className="passkeyList">{accountData.passkeys.map((passkey, index) => <div key={passkey.credentialId}><span><strong>Passkey {index + 1}</strong><small>{passkey.deviceType === 'multiDevice' ? 'Synced credential' : 'Device credential'} · {passkey.prfCapable ? 'private recovery ready' : 'sign-in only'} · added {new Date(passkey.createdAt).toLocaleDateString()} · …{passkey.credentialId.slice(-8)}</small></span><div className="passkeyActions"><button className="secondary" onClick={() => onVerifyPasskeyPrf(passkey.credentialId)} disabled={busy === 'passkey-prf'}>{busy === 'passkey-prf' ? 'Checking…' : passkey.prfCapable ? 'Test recovery' : 'Verify recovery'}</button><button className="quiet" onClick={() => onRevokePasskey(passkey.credentialId)} disabled={accountData.passkeys.length <= 2 || (passkey.prfCapable && prfPasskeyCount <= 2) || busy === 'passkey-revoke'}>{busy === 'passkey-revoke' ? 'Verifying…' : 'Revoke'}</button></div></div>)}</div>}
         </section>
         <section className="panel accountScope">
-          <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div></div>
+          <div className="panelTitle"><div><span>Account data</span><h3>What KudiRoll stores</h3></div><button className="quiet" onClick={onDisconnect}>Disconnect wallet</button></div>
           <div className="scopeList"><div><strong>Business profile</strong><span>The owner and contact details entered above.</span></div><div><strong>Payroll workspace</strong><span>{teams.length} saved {teams.length === 1 ? 'team' : 'teams'} and {accountData?.payRuns.length ?? 0} pay-run {(accountData?.payRuns.length ?? 0) === 1 ? 'record' : 'records'}.</span></div><div><strong>Security boundary</strong><span>KudiRoll stores passkey public credentials and may store encrypted STRK20 private-state ciphertext. Signer keys, plaintext viewing keys, proofs, and recovery secrets never reach the server.</span></div></div>
         </section>
         <section className="panel dangerZone">
