@@ -8,6 +8,7 @@ import { databaseReadiness, persistenceConfig } from './src/server/database'
 import { bootstrapAccountStore } from './src/server/account-bootstrap'
 import { createApiOriginPolicy } from './src/server/origin-policy'
 import { createKudiRailProxy, normalizeKudiRailUpstream, readKudiRailHealth } from './src/server/kudirail-proxy'
+import { paycrestWebhookHandler } from './src/server/paycrest-webhook'
 
 config({ path: '.env.local', quiet: true })
 config({ path: '.env', quiet: true })
@@ -18,6 +19,7 @@ const app = express()
 const port = Number(process.env.PORT || 4173)
 const host = process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
 const kudiRailUpstream = normalizeKudiRailUpstream(process.env.KUDIRAIL_UPSTREAM_URL)
+const kudiRailProxy = kudiRailUpstream ? createKudiRailProxy(kudiRailUpstream) : null
 
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
@@ -33,6 +35,7 @@ app.use((_req, res, next) => {
   next()
 })
 app.use('/api', createApiOriginPolicy())
+app.post('/api/phase0/paycrest/webhook', express.raw({ type: 'application/json', limit: '128kb' }), kudiRailProxy || paycrestWebhookHandler)
 app.use(express.json({ limit: '32kb' }))
 app.get('/api/health', async (_req, res) => {
   if (kudiRailUpstream) {
@@ -64,9 +67,8 @@ app.get('/api/health', async (_req, res) => {
     environment: process.env.RAILWAY_ENVIRONMENT_NAME || process.env.NODE_ENV || 'development',
   })
 })
-if (kudiRailUpstream) {
-  const proxy = createKudiRailProxy(kudiRailUpstream)
-  app.use(['/api/phase0', '/api/v1', '/api/account'], proxy)
+if (kudiRailProxy) {
+  app.use(['/api/phase0', '/api/v1', '/api/account'], kudiRailProxy)
 } else {
   app.use('/api/phase0', createPhase0Router())
   app.use('/api/v1', createRailRouter())

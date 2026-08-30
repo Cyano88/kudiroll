@@ -3,7 +3,7 @@ import type { RequestHandler } from 'express'
 type Fetcher = typeof fetch
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
-const FORWARDED_REQUEST_HEADERS = ['accept', 'cookie', 'idempotency-key', 'origin', 'user-agent'] as const
+const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type', 'cookie', 'idempotency-key', 'origin', 'user-agent', 'x-paycrest-signature'] as const
 const FORWARDED_RESPONSE_HEADERS = ['cache-control', 'content-type', 'kudiroll-api-version', 'retry-after'] as const
 
 export function normalizeKudiRailUpstream(value: string | undefined) {
@@ -53,8 +53,8 @@ export function createKudiRailProxy(upstream: string, fetcher: Fetcher = fetch):
       if (requestHost) headers.set('x-forwarded-host', requestHost)
       headers.set('x-forwarded-proto', req.protocol)
       const hasBody = !['GET', 'HEAD'].includes(req.method) && req.body !== undefined
-      const body = hasBody ? JSON.stringify(req.body) : undefined
-      if (body !== undefined) headers.set('content-type', 'application/json')
+      const body = !hasBody ? undefined : Buffer.isBuffer(req.body) ? Uint8Array.from(req.body) : JSON.stringify(req.body)
+      if (body !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json')
       const response = await fetcher(target, {
         method: req.method,
         headers,

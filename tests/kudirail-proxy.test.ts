@@ -84,3 +84,32 @@ test('reads only a valid KudiRail health response and fails closed upstream', as
     await new Promise<void>((resolve, reject) => proxy.server.close(error => error ? reject(error) : resolve()))
   }
 })
+
+test('proxies a Paycrest raw body and signature without reserializing either', async () => {
+  const raw = Buffer.from('{"event":"payment_order.settled", "data":{"id":"order-1"}}')
+  let receivedBody = Buffer.alloc(0)
+  let receivedSignature = ''
+  const upstreamApp = express()
+  upstreamApp.post('/api/phase0/paycrest/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+    receivedBody = req.body
+    receivedSignature = String(req.headers['x-paycrest-signature'] || '')
+    res.status(204).end()
+  })
+  const upstream = await listen(upstreamApp)
+  const app = express()
+  app.post('/api/phase0/paycrest/webhook', express.raw({ type: 'application/json' }), createKudiRailProxy(upstream.origin))
+  const proxy = await listen(app)
+  try {
+    const response = await fetch(`${proxy.origin}/api/phase0/paycrest/webhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Paycrest-Signature': 'a'.repeat(64) }, body: raw,
+    })
+    assert.equal(response.status, 204)
+    assert.deepEqual(receivedBody, raw)
+    assert.equal(receivedSignature, 'a'.repeat(64))
+  } finally {
+    await Promise.all([
+      new Promise<void>((resolve, reject) => proxy.server.close(error => error ? reject(error) : resolve())),
+      new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve())),
+    ])
+  }
+})
