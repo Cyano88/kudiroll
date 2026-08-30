@@ -185,7 +185,7 @@ test('creates a validated Starknet order using the server-verified account name'
   try {
     const order = await createPhase0PaycrestOrder({
       amountNgn: '1000', institution: '058', accountIdentifier: '0123456789',
-      refundAddress: '0xabc', confirmation: 'CREATE TEST ORDER',
+      refundAddress: '0xabc',
     }, fakeFetch as typeof fetch)
     assert.equal(order.amountUsdc, '0.75')
     assert.equal(order.receiveAddress, `0x${'1'.repeat(64)}`)

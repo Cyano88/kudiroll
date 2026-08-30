@@ -147,7 +147,6 @@ export function App() {
   const [accountIdentifier, setAccountIdentifier] = useState('')
   const [verifiedAccount, setVerifiedAccount] = useState<VerifiedAccount | null>(null)
   const [amountNgn, setAmountNgn] = useState('1000')
-  const [orderConfirmation, setOrderConfirmation] = useState('')
   const [order, setOrder] = useState<Phase0Order | null>(null)
   const [orderError, setOrderError] = useState('')
   const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>([])
@@ -618,7 +617,6 @@ export function App() {
 
   function resetOrder() {
     setOrder(null)
-    setOrderConfirmation('')
     setOrderError('')
     setSimulationState('idle')
     setSimulationMessage('Create a verified Paycrest order to begin.')
@@ -677,8 +675,7 @@ export function App() {
           institution: bankCode,
           accountIdentifier,
           refundAddress: walletAddress,
-          memo: 'KudiRoll Phase 0 payout',
-          confirmation: orderConfirmation,
+          memo: 'KudiRoll payout',
         }),
       }, 1)
       const next = data.order as Phase0Order
@@ -750,14 +747,14 @@ export function App() {
 
   const paycrestPilot = <div className="sectionStack paycrestPilot">
     <section className="panel sectionIntro">
-      <div><span className="panelKicker">Guided payout test</span><h2>Test a Nigerian bank payout</h2><p>Use a small test to verify the recipient, check the current rate, and review the exact private USDC payment before Ready asks for approval.</p></div>
-      <span className={`statePill ${liveOrdersEnabled ? 'safe' : 'neutral'}`}>{liveOrdersEnabled ? 'Test enabled' : 'Read-only demo'}</span>
+      <div><span className="panelKicker">Bank payout</span><h2>Pay a Nigerian bank account</h2><p>Verify the recipient, check the current rate, and review the exact private USDC payment before Ready asks for approval.</p></div>
+      <span className={`statePill ${liveOrdersEnabled ? 'safe' : 'neutral'}`}>{liveOrdersEnabled ? 'Live' : 'Unavailable'}</span>
     </section>
 
     <section className="pilotReadiness">
       <article><span>Paycrest quote</span><strong>{publicProbe?.quote ? `₦${publicProbe.quote.rate} / USDC` : 'Not checked'}</strong><button className="plainButton" onClick={probePaycrest} disabled={Boolean(busy)}>{busy === 'paycrest' ? 'Checking…' : 'Refresh quote'}</button></article>
       <article><span>Private balance</span><strong>{privateBalanceUsdc === null ? 'Not checked' : `${privateBalanceUsdc} USDC`}</strong><button className="plainButton" onClick={checkBalance} disabled={Boolean(busy)}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button></article>
-      <article><span>Settlement route</span><strong>Starknet → NGN</strong><small>Guided Paycrest test</small></article>
+      <article><span>Settlement route</span><strong>Starknet → NGN</strong><small>Paycrest bank payout</small></article>
     </section>
     {(probeError || publicProbe?.warning) && <div className="inlineError">{probeError || publicProbe?.warning}</div>}
 
@@ -773,8 +770,7 @@ export function App() {
       {accountIsVerified && <div className="verifiedBox"><span>Verified recipient</span><strong>{verifiedAccount.accountName}</strong><small>{institutions.find(item => item.code === bankCode)?.name} · account ending {accountIdentifier.slice(-4)}</small></div>}
       <div className="orderGate">
         <label>Amount to receive<input value={amountNgn} onChange={event => { setAmountNgn(event.target.value.replace(/[^\d.]/g, '')); resetOrder() }} inputMode="decimal" disabled={Boolean(order)} /><small>NGN</small></label>
-        <label>Confirmation<input value={orderConfirmation} onChange={event => setOrderConfirmation(event.target.value)} autoComplete="off" placeholder="CREATE TEST ORDER" disabled={Boolean(order)} /></label>
-        <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || orderConfirmation !== 'CREATE TEST ORDER' || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Create test order' : 'Order creation paused'}</button>
+        <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Continue to payment' : 'Payout unavailable'}</button>
       </div>
       {orderError && <div className="errorBox"><strong>Could not continue</strong><span>{orderError}</span></div>}
       {order && <div className="orderReceipt"><div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={orderExpired ? 'expired' : ''}>{orderExpired ? 'Expired' : order.status}</em></div><div className="receiptGrid"><div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div><div><span>Recipient receives</span><strong>₦{order.amountNgn}</strong></div><div><span>You send</span><strong>{order.amountUsdc} USDC</strong></div><div><span>Pay before</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div></div><div className="actions"><button onClick={simulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered || simulationState === 'submitted'}>{busy === 'simulate' ? 'Waiting for Ready…' : simulationState === 'passed' ? 'Check again' : 'Check payment in Ready'}</button>{simulationState !== 'submitted' && <button className="ghost" onClick={resetOrder} disabled={Boolean(busy)}>Discard order</button>}</div></div>}
@@ -1003,7 +999,7 @@ function ProductShell({
   const treasuryReady = treasuryReadiness?.status === 'ready' || hasExistingSpendableBalance
   const pageTitle: Record<ProductSection, string> = {
     overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
-    providers: 'Payout methods', settings: 'Business profile', lab: 'Guided payout test',
+    providers: 'Payout methods', settings: 'Business profile', lab: 'Bank payout',
   }
 
   useEffect(() => {
@@ -1309,7 +1305,7 @@ function ProductShell({
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Treasury shields</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked treasury shields" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
         {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
-        <section className="panel historyPanel"><div className="panelTitle"><div><span>Optional settlement records</span><h3>Paycrest test orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Paycrest is not configured" detail="Private payroll and STRK20 history remain available. Configure Paycrest only when testing Naira settlement." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No Paycrest test orders found" detail="Orders created in the guided Naira test will appear here." action="Open guided test" onAction={() => onSection('lab')} />}</section>
+        <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
       </div>}
 
       {section === 'providers' && <div className="sectionStack">
