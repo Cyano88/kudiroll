@@ -766,15 +766,15 @@ export function App() {
     </section>
   </div>
 
-  const readinessLabel = treasuryReadiness?.status === 'ready' ? 'Payroll ready' : treasuryReadiness?.status === 'maturing' ? treasuryReadiness.blocksRemaining + ' blocks left' : treasuryReadiness?.status === 'submitted' ? 'Awaiting finality' : treasuryReadiness?.status === 'reverted' ? 'Reverted' : treasuryReadiness?.status === 'unknown' ? 'Verification delayed' : 'Not tracked'
+  const readinessLabel = treasuryReadiness?.status === 'ready' ? 'Payroll ready' : treasuryReadiness?.status === 'maturing' ? treasuryReadiness.blocksRemaining + ' blocks left' : treasuryReadiness?.status === 'submitted' ? 'Awaiting finality' : treasuryReadiness?.status === 'reverted' ? 'Reverted' : treasuryReadiness?.status === 'unknown' ? 'Verification delayed' : 'Not funded'
   const shieldPanel = <section className="panel shieldPanel">
-    <div className="panelTitle"><div><span>Shield treasury</span><h3>Move public USDC into private payroll</h3></div><span className={'statePill ' + (treasuryReadiness?.status === 'ready' ? 'safe' : treasuryReadiness?.status === 'reverted' || treasuryReadiness?.status === 'unknown' || shieldState === 'failed' ? 'blocked' : 'neutral')}>{readinessLabel}</span></div>
-    <p className="shieldDisclosure">Shielding is public: your wallet address, token amount, approval, and deposit timing are visible onchain. Private payroll begins only after USDC enters the STRK20 pool.</p>
-    <div className="shieldSteps"><div><strong>1</strong><span>Public USDC approval</span></div><div><strong>2</strong><span>Public pool deposit</span></div><div><strong>3</strong><span>Wait about 10 blocks</span></div></div>
-    <div className="treasuryTracker"><div><span>Treasury readiness</span><strong>{treasuryReadiness?.message || 'KudiRoll will track finality after you submit a shield.'}</strong><small>Current STRK20 pool fees are calculated and shown by your wallet during approval; KudiRoll does not hard-code them.</small></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
+    <div className="panelTitle"><div><span>Payroll funds</span><h3>Add private USDC</h3></div><span className={'statePill ' + (treasuryReadiness?.status === 'ready' ? 'safe' : treasuryReadiness?.status === 'reverted' || treasuryReadiness?.status === 'unknown' || shieldState === 'failed' ? 'blocked' : 'neutral')}>{readinessLabel}</span></div>
+    <p className="shieldDisclosure">Funding is a public onchain transaction. Payroll becomes private after the deposit is confirmed.</p>
+    <details className="shieldDetails"><summary>How funding works</summary><div className="shieldSteps"><div><strong>1</strong><span>Approve USDC</span></div><div><strong>2</strong><span>Deposit funds</span></div><div><strong>3</strong><span>Wait for confirmation</span></div></div><p>Ready X shows the current network and pool fees before you approve.</p></details>
+    <div className="treasuryTracker"><div><span>Status</span><strong>{treasuryReadiness?.message || 'No funding transaction is being tracked.'}</strong></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
     {treasuryError && <div className="inlineError">{treasuryError}</div>}
-    <div className="shieldControls"><label>Amount to shield<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in wallet...' : 'Simulate shield'}</button></div>
-    <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Simulation passed' : shieldState === 'submitted' ? 'Shield submitted' : shieldState === 'failed' ? 'Shield not ready' : 'No transaction yet'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>
+    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in Ready X...' : 'Review in Ready X'}</button></div>
+    {shieldState !== 'idle' && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
     {shieldState === 'passed' && <div className="shieldApproval"><label>Type SHIELD USDC to continue<input value={shieldConfirmation} onChange={event => setShieldConfirmation(event.target.value)} placeholder="SHIELD USDC" autoComplete="off" /></label><button onClick={shieldUsdc} disabled={shieldConfirmation !== 'SHIELD USDC' || Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for wallet...' : 'Shield ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
 
@@ -1298,8 +1298,8 @@ function ProductShell({
       {section === 'providers' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
         {shieldPanel}
-        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Paycrest quotes, recipient verification, order creation, and status are connected for testing. End-to-end settlement is not certified." /><ProviderCard title="More local payouts" status="Coming later" tone="neutral" detail="Additional local payout routes will appear after complete end-to-end testing." /></div>
-        <section className="panel labCallout"><div><span className="panelKicker">Optional test</span><h3>Try a Naira payout</h3><p>This stays separate from your team payroll.</p></div><button onClick={() => onSection('lab')}>Open guided test</button></section>
+        <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
+        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Try a separate test before using this route for payroll." action="Open guided test" onAction={() => onSection('lab')} /></div>
       </div>}
 
       {section === 'lab' && paycrestPilot}
@@ -1385,8 +1385,8 @@ function StatusLine({ done, label }: { done: boolean; label: string }) {
   return <div><i className={done ? 'done' : ''}>{done ? <CheckIcon aria-hidden="true" /> : null}</i><span>{label}</span></div>
 }
 
-function ProviderCard({ title, status, detail, tone }: { title: string; status: string; detail: string; tone: 'safe' | 'blocked' | 'neutral' }) {
-  return <article className="providerCard"><div className="providerTop"><div className={`providerMark ${tone}`}><AppIcon name={tone === 'safe' ? 'wallet' : 'route'} /></div><span className={`statePill ${tone}`}>{status}</span></div><h3>{title}</h3><p>{detail}</p></article>
+function ProviderCard({ title, status, detail, tone, action, onAction }: { title: string; status: string; detail: string; tone: 'safe' | 'blocked' | 'neutral'; action?: string; onAction?: () => void }) {
+  return <article className="providerCard"><div className="providerTop"><div className={`providerMark ${tone}`}><AppIcon name={tone === 'safe' ? 'wallet' : 'route'} /></div><span className={`statePill ${tone}`}>{status}</span></div><h3>{title}</h3><p>{detail}</p>{action && onAction && <button className="plainButton" onClick={onAction}>{action}<ArrowRightIcon aria-hidden="true" /></button>}</article>
 }
 
 function TreasuryShieldRow({ shield, readiness }: { shield: TreasuryShieldRecord; readiness: TreasuryReadiness | null }) {

@@ -185,8 +185,13 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .metricCard > small { display: block; min-height: 32px; color: #92938a; font-size: .65rem; line-height: 1.4; }
 .metricCard > button { margin-top: 12px; padding: 0; color: #667039; background: transparent; font-size: .66rem; }
 .panel { padding: 20px; }
-.shieldPanel { display: grid; gap: 16px; }
-.shieldDisclosure { margin: 0; border-left: 3px solid #a06e39; padding: 10px 12px; color: #705b43; background: #f8f1e7; font-size: .7rem; line-height: 1.55; }
+.shieldPanel { display: grid; gap: 14px; }
+.shieldDisclosure { margin: 0; border-radius: 8px; padding: 10px 12px; color: #616a61; background: #f3f6f2; font-size: .7rem; line-height: 1.55; }
+.shieldDetails { margin: 0; border: 1px solid #e0e4de; border-radius: 8px; padding: 0; background: #f7f9f6; }
+.shieldDetails summary { border: 0; padding: 13px 14px; color: #4f5850; font-size: .68rem; }
+.shieldDetails[open] summary { border-bottom: 1px solid #e0e4de; }
+.shieldDetails .shieldSteps { padding: 12px 12px 0; }
+.shieldDetails > p { margin: 0; padding: 10px 14px 13px; color: #7f857d; font-size: .62rem; line-height: 1.45; }
 .shieldSteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .shieldSteps > div { display: flex; align-items: center; gap: 9px; border: 1px solid #e0e4de; border-radius: 8px; padding: 11px; background: #f7f9f6; }
 .shieldSteps strong { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; background: #405b39; font-size: .64rem; }
@@ -309,8 +314,11 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .batchApproval strong { font-size: .75rem; }
 .batchApproval p { margin: 0; color: #777e74; font-size: .66rem; line-height: 1.45; }
 .batchApproval input { margin: 0; }
-.providerGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-.providerCard { padding: 18px; }
+.providerSectionTitle { display: grid; gap: 3px; margin-top: 4px; }
+.providerSectionTitle span { color: #98998f; font-size: .65rem; }
+.providerSectionTitle h3 { margin: 0; font-size: 1rem; letter-spacing: -.035em; }
+.providerGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.providerCard { display: flex; min-height: 190px; flex-direction: column; padding: 18px; }
 .providerTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .providerMark { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 9px; color: #5a6335; background: #edf1e8; }
 .providerMark.blocked { color: #8d4837; background: #f4ddd6; }
@@ -318,6 +326,8 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .providerMark svg { width: 19px; height: 19px; }
 .providerCard h3 { margin: 20px 0 6px; font-size: .92rem; }
 .providerCard p { margin: 0; color: #818279; font-size: .7rem; line-height: 1.5; }
+.providerCard > .plainButton { display: inline-flex; align-items: center; gap: 6px; width: max-content; margin-top: auto; padding-top: 16px; }
+.providerCard > .plainButton svg { width: 14px; height: 14px; }
 .labCallout { display: flex; align-items: center; justify-content: space-between; gap: 24px; color: #232820; background: #eef1ed; box-shadow: inset 3px 0 #879582; }
 .labCallout p { margin: 7px 0 0; color: #72786e; font-size: .72rem; }
 .labCallout button { color: #fff; background: #293221; }
@@ -551,7 +561,10 @@ html[data-theme='dark'] .metricCard > button,
 html[data-theme='dark'] .plainButton { color: #79c99a; }
 html[data-theme='dark'] .panelTitle span,
 html[data-theme='dark'] .composerHead span { color: #7d8880; }
-html[data-theme='dark'] .shieldDisclosure { color: #d2b98f; background: #2a2117; }
+html[data-theme='dark'] .shieldDisclosure { color: #a7b2a9; background: #171d18; }
+html[data-theme='dark'] .shieldDetails { border-color: #29312b; background: #171d18; }
+html[data-theme='dark'] .shieldDetails summary { color: #c3ccc5; }
+html[data-theme='dark'] .shieldDetails[open] summary { border-color: #29312b; }
 html[data-theme='dark'] .shieldSteps > div { border-color: #29312b; background: #171d18; }
 html[data-theme='dark'] .shieldSteps span { color: #9ba59d; }
 html[data-theme='dark'] .treasuryTracker,
