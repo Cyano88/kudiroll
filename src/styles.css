@@ -143,8 +143,8 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .brandButton img { width: 37px; height: 40px; object-fit: contain; }
 .brandButton strong { font-size: 1.05rem; letter-spacing: -.04em; }
 .sideRail nav, .railBottom { display: grid; gap: 5px; }
-.sideRail nav button, .railBottom button { position: relative; display: flex; align-items: center; gap: 11px; width: 100%; min-height: 40px; border-radius: 6px; padding: 9px 12px; color: #646b63; background: transparent; font-size: .75rem; font-weight: 700; text-align: left; }
-.sideRail nav button:hover, .railBottom button:hover { color: #252a22; background: #f2f3f0; }
+.sideRail nav button, .railBottom button, .railBottom a { position: relative; display: flex; align-items: center; gap: 11px; width: 100%; min-height: 40px; border-radius: 6px; padding: 9px 12px; color: #646b63; background: transparent; font-size: .75rem; font-weight: 700; text-align: left; text-decoration: none; }
+.sideRail nav button:hover, .railBottom button:hover, .railBottom a:hover { color: #252a22; background: #f2f3f0; }
 .sideRail nav button.active, .railBottom button.active { color: #1f2c1d; background: #e8eee5; box-shadow: inset 3px 0 #405b39; }
 .sideRail svg { width: 18px; height: 18px; }
 .railBottom { margin-top: auto; }
@@ -417,8 +417,8 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
   .productFrame { grid-template-columns: 82px minmax(0, 1fr); }
   .sideRail { padding-inline: 12px; }
   .brandButton { justify-content: center; padding-inline: 0; }
-  .brandButton strong, .sideRail nav button span, .railBottom button span { display: none; }
-  .sideRail nav button, .railBottom button { justify-content: center; }
+.brandButton strong, .sideRail nav button span, .railBottom button span, .railBottom a span { display: none; }
+.sideRail nav button, .railBottom button, .railBottom a { justify-content: center; }
   .dashboardLayout { grid-template-columns: 1fr; }
   .dashboardAside { grid-template-columns: 1fr 1fr; }
   .providerGrid { grid-template-columns: 1fr 1fr; }
@@ -528,9 +528,11 @@ html[data-theme='dark'] .productFrame { color: #e9efea; background: #0c100d; }
 html[data-theme='dark'] .sideRail { border-color: #252c27; background: #101511; }
 html[data-theme='dark'] .brandButton { color: #f2f6f2; background: transparent; }
 html[data-theme='dark'] .sideRail nav button,
-html[data-theme='dark'] .railBottom button { color: #879189; background: transparent; }
+html[data-theme='dark'] .railBottom button,
+html[data-theme='dark'] .railBottom a { color: #879189; background: transparent; }
 html[data-theme='dark'] .sideRail nav button:hover,
-html[data-theme='dark'] .railBottom button:hover { color: #e5ece6; background: #171e19; }
+html[data-theme='dark'] .railBottom button:hover,
+html[data-theme='dark'] .railBottom a:hover { color: #e5ece6; background: #171e19; }
 html[data-theme='dark'] .sideRail nav button.active,
 html[data-theme='dark'] .railBottom button.active { color: #dff5e7; background: #1b2820; box-shadow: inset 3px 0 #32c98b; }
 html[data-theme='dark'] .productTopbar { border-color: #252d27; }
@@ -775,7 +777,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brandButton img { width: 36px; height: 40px; }
 .brandButton strong { font-size: 1.08rem; font-weight: 700; letter-spacing: -.045em; }
 .sideRail nav, .railBottom { gap: 6px; }
-.sideRail nav button, .railBottom button {
+.sideRail nav button, .railBottom button, .railBottom a {
   min-height: 43px;
   gap: 12px;
   border: 1px solid transparent;
@@ -785,7 +787,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   font-size: .76rem;
   font-weight: 600;
 }
-.sideRail nav button:hover, .railBottom button:hover {
+.sideRail nav button:hover, .railBottom button:hover, .railBottom a:hover {
   color: var(--kr-text);
   border-color: var(--kr-border);
   background: var(--kr-surface-soft);
@@ -1139,8 +1141,8 @@ html[data-theme='dark'] .signInPrimary > svg { color: #062b19; background: #c8f8
 
 @media (max-width: 960px) {
   .productFrame { grid-template-columns: 86px minmax(0, 1fr); }
-  .sideRail nav button, .railBottom button { justify-content: center; padding-inline: 9px; }
-  .sideRail nav button span, .railBottom button span, .brandButton strong { display: none; }
+  .sideRail nav button, .railBottom button, .railBottom a { justify-content: center; padding-inline: 9px; }
+  .sideRail nav button span, .railBottom button span, .railBottom a span, .brandButton strong { display: none; }
   .brandButton { justify-content: center; }
 }
 

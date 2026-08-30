@@ -54,7 +54,6 @@ type Institution = { code: string; name: string; type?: string }
 type VerifiedAccount = { accountName: string; fingerprint: string }
 type Phase0Order = {
   id: string
-  status: string
   reference: string
   amountNgn: string
   amountUsdc: string
@@ -62,28 +61,26 @@ type Phase0Order = {
   validUntil: string
   accountName: string
   bankLast4: string
-}
-type PaycrestOrderSummary = {
-  id: string
-  status: string
-  reference: string
-  amountNgn: string
-  amountUsdc: string
   network: string
   token: string
-  accountName: string
-  bankLast4: string
+  providerStatus: string
+  displayStatus: 'ready-to-pay' | 'payment-submitted' | 'awaiting-paycrest-detection' | 'reconciliation-required' | 'refunding' | 'refunded' | 'completed' | 'payment-window-closed' | 'payment-failed'
+  transactionHash: string
+  submissionState: string
+  chainStatus: string
+  chainMessage: string
+  reconciliationReason: string
   createdAt: string
   updatedAt: string
-  txHash: string
 }
+type PaycrestOrderSummary = Phase0Order
 type ConnectedWallet = WalletAccountV6
 type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
 type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -116,6 +113,18 @@ function transactionLabel(result: unknown) {
   const record = result as Record<string, unknown>
   const value = record.transaction_hash ?? record.transactionHash ?? record.tx_hash ?? record.txHash
   return value ? `Payment submitted. Transaction ${String(value)} is waiting for Paycrest confirmation.` : 'Payment submitted. Paycrest is confirming the deposit.'
+}
+
+function transactionHashFrom(result: unknown) {
+  if (!result || typeof result !== 'object') return ''
+  const record = result as Record<string, unknown>
+  return String(record.transaction_hash ?? record.transactionHash ?? record.tx_hash ?? record.txHash ?? '').trim()
+}
+
+const payoutStatusLabels: Record<Phase0Order['displayStatus'], string> = {
+  'ready-to-pay': 'Ready to pay', 'payment-submitted': 'Payment submitted', 'awaiting-paycrest-detection': 'Awaiting Paycrest detection',
+  'reconciliation-required': 'Reconciliation required', refunding: 'Refunding', refunded: 'Refunded', completed: 'Completed',
+  'payment-window-closed': 'Payment window closed', 'payment-failed': 'Payment failed',
 }
 
 export function App() {
@@ -154,6 +163,8 @@ export function App() {
   const [orderError, setOrderError] = useState('')
   const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>([])
   const [orderHistoryError, setOrderHistoryError] = useState('')
+  const [recoveryOrderId, setRecoveryOrderId] = useState('')
+  const [recoveryTransactionHash, setRecoveryTransactionHash] = useState('')
   const [paycrestConfigured, setPaycrestConfigured] = useState<boolean | null>(null)
   const [liveOrdersEnabled, setLiveOrdersEnabled] = useState(false)
   const [simulationState, setSimulationState] = useState<'idle' | 'passed' | 'failed' | 'submitted'>('idle')
@@ -176,9 +187,10 @@ export function App() {
   const walletAddress = wallet?.address || accountData?.walletAddress || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
   const accountIsVerified = verifiedAccount?.fingerprint === accountFingerprint
-  const orderExpired = order ? Date.parse(order.validUntil) <= now : true
-  const exactAmountCovered = order && privateBalanceUsdc !== null ? Number(order.amountUsdc) <= privateBalanceUsdc : false
-  const currentOrderStatus = order ? paycrestOrders.find(item => item.id === order.id)?.status || order.status : ''
+  const trackedOrder = order ? paycrestOrders.find(item => item.id === order.id) || order : null
+  const orderExpired = trackedOrder ? Date.parse(trackedOrder.validUntil) <= now && !trackedOrder.transactionHash : true
+  const exactAmountCovered = trackedOrder && privateBalanceUsdc !== null ? Number(trackedOrder.amountUsdc) <= privateBalanceUsdc : false
+  const currentOrderStatus = trackedOrder ? payoutStatusLabels[trackedOrder.displayStatus] : ''
 
   async function restoreSession() {
     if (previewMode) return
@@ -274,10 +286,10 @@ export function App() {
   }, [accountData?.walletAddress, treasuryReadiness?.status])
 
   useEffect(() => {
-    if (!accountData?.walletAddress || !paycrestOrders.some(item => !['settled', 'refunded', 'expired', 'cancelled', 'canceled', 'failed'].includes(item.status.toLowerCase()))) return
+    if (!accountData?.walletAddress || !paycrestOrders.some(item => !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(item.displayStatus))) return
     const timer = window.setInterval(() => void loadPaycrestOrders(), 15_000)
     return () => window.clearInterval(timer)
-  }, [accountData?.walletAddress, paycrestOrders.map(item => `${item.id}:${item.status}`).join('|')])
+  }, [accountData?.walletAddress, paycrestOrders.map(item => `${item.id}:${item.displayStatus}:${item.chainStatus}`).join('|')])
 
   async function localJson(path: string, init: RequestInit = {}, attempts = 2) {
     let lastError: unknown
@@ -321,7 +333,17 @@ export function App() {
     try {
       const data = await localJson('/api/phase0/paycrest/orders')
       setPaycrestConfigured(data.configured !== false)
-      setPaycrestOrders(Array.isArray(data.orders) ? data.orders : [])
+      const orders = Array.isArray(data.orders) ? data.orders as PaycrestOrderSummary[] : []
+      setPaycrestOrders(orders)
+      setOrder(current => {
+        const refreshed = current ? orders.find(item => item.id === current.id) : null
+        const active = refreshed || (!current ? orders.find(item => !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(item.displayStatus)) : null)
+        if (active?.transactionHash) {
+          setSimulationState('submitted')
+          setSimulationMessage(active.chainMessage || active.reconciliationReason || 'Payment submitted. KudiRail is tracking Starknet and Paycrest evidence.')
+        }
+        return active || current
+      })
     } catch (error) {
       setOrderHistoryError(readableError(error))
     }
@@ -731,13 +753,13 @@ export function App() {
   }
 
   async function simulate() {
-    if (!wallet || !order) return
+    if (!wallet || !trackedOrder) return
     setBusy('simulate')
     setSimulationState('idle')
     try {
-      if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order has expired. Create a fresh order.')
+      if (Date.parse(trackedOrder.validUntil) <= Date.now()) throw new Error('This Paycrest payment window has closed. Create a fresh order.')
       if (!exactAmountCovered) throw new Error('The exact order amount exceeds the last checked private USDC balance.')
-      await withTimeout(simulatePaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 90_000)
+      await withTimeout(simulatePaycrestWithdraw(wallet, trackedOrder.receiveAddress, trackedOrder.amountUsdc), 90_000)
       setSimulationState('passed')
       setSimulationMessage('Preview complete. No funds moved. Review the details, then approve the payment in Ready X.')
     } catch (error) {
@@ -749,19 +771,75 @@ export function App() {
   }
 
   async function submit() {
-    if (!wallet || !order || simulationState !== 'passed') return
+    if (!wallet || !trackedOrder || simulationState !== 'passed') return
     setBusy('submit')
+    let submittedHash = ''
     try {
-      if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order expired before approval. Do not send to it.')
-      const result = await withTimeout(submitPaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 180_000)
+      if (Date.parse(trackedOrder.validUntil) <= Date.now()) throw new Error('This Paycrest payment window closed before approval. Do not send to it.')
+      await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(trackedOrder.id)}/submission`, { method: 'POST', body: JSON.stringify({ state: 'submitting' }) }, 1)
+      const result = await withTimeout(submitPaycrestWithdraw(wallet, trackedOrder.receiveAddress, trackedOrder.amountUsdc), 180_000, 'The wallet outcome is unknown after three minutes. Do not submit again; check Ready activity first.')
+      const transactionHash = transactionHashFrom(result)
+      if (!transactionHash) throw new Error('The wallet outcome is unknown because Ready returned no transaction hash. Do not submit again; check Ready activity first.')
+      submittedHash = transactionHash
+      await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(trackedOrder.id)}/submission`, { method: 'POST', body: JSON.stringify({ transactionHash }) }, 1)
       setSimulationState('submitted')
       setSimulationMessage(transactionLabel(result))
-      void loadPaycrestOrders()
+      await loadPaycrestOrders()
     } catch (error) {
-      setSimulationMessage(privacyActionError(error))
+      const message = privacyActionError(error)
+      const cancelled = /cancelled|USER_REFUSED|USER_REJECTED|rejected by user/i.test(readableError(error))
+      if (trackedOrder) await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(trackedOrder.id)}/submission`, { method: 'POST', body: JSON.stringify({ state: cancelled ? 'cancelled' : 'unknown' }) }, 1).catch(() => null)
+      setSimulationState(cancelled ? 'failed' : 'submitted')
+      setSimulationMessage(cancelled ? message : `${message}${submittedHash ? ` Ready returned transaction ${submittedHash}.` : ''} KudiRail has blocked duplicate payment until this attempt is reconciled.`)
+      void loadPaycrestOrders()
     } finally {
       setBusy('')
     }
+  }
+
+  async function reconcilePayout(orderId: string) {
+    setBusy(`reconcile:${orderId}`)
+    try {
+      await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(orderId)}/reconcile`, { method: 'POST' }, 1)
+      await loadPaycrestOrders()
+    } catch (error) {
+      setOrderError(`Could not reconcile this payment. ${readableError(error)}`)
+    } finally { setBusy('') }
+  }
+
+  async function exportPayoutEvidence(orderId: string) {
+    setBusy(`evidence:${orderId}`)
+    try {
+      const response = await fetch(kudiRailUrl(`/api/phase0/paycrest/orders/${encodeURIComponent(orderId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `HTTP ${response.status}`)
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `kudirail-paycrest-${orderId}.json`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      setOrderError(`Could not export incident evidence. ${readableError(error)}`)
+    } finally { setBusy('') }
+  }
+
+  async function recoverEarlierPayout() {
+    setBusy('recover-payout')
+    setOrderError('')
+    try {
+      const result = await localJson('/api/phase0/paycrest/orders/recover', {
+        method: 'POST',
+        body: JSON.stringify({ orderId: recoveryOrderId.trim(), transactionHash: recoveryTransactionHash.trim() }),
+      }, 1)
+      setOrder(result.payout)
+      setSimulationState('submitted')
+      setSimulationMessage(result.payout?.reconciliationReason || result.payout?.chainMessage || 'Earlier payment recovered into KudiRail.')
+      setRecoveryOrderId('')
+      setRecoveryTransactionHash('')
+      await loadPaycrestOrders()
+    } catch (error) {
+      setOrderError(`Could not recover this payment. ${readableError(error)}`)
+    } finally { setBusy('') }
   }
 
   if (!enteredApp && (sessionStatus === 'checking' || sessionStatus === 'error')) {
@@ -811,9 +889,10 @@ export function App() {
         <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Continue to payment' : 'Payout unavailable'}</button>
       </div>
       {orderError && <div className="errorBox"><strong>Could not continue</strong><span>{orderError}</span></div>}
-      {order && <div className="orderReceipt"><div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={orderExpired ? 'expired' : ''}>{orderExpired ? 'Expired' : currentOrderStatus}</em></div><div className="receiptGrid"><div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div><div><span>Recipient receives</span><strong>₦{order.amountNgn}</strong></div><div><span>You pay</span><strong>{order.amountUsdc} USDC</strong></div><div><span>Pay before</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div></div><div className="actions"><button onClick={simulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered || simulationState === 'submitted'}>{busy === 'simulate' ? 'Opening preview…' : simulationState === 'passed' ? 'Preview again' : 'Preview payment'}</button>{simulationState !== 'submitted' && <button className="ghost" onClick={resetOrder} disabled={Boolean(busy)}>Discard order</button>}</div></div>}
-      {order && <div className={`simulation ${simulationState}`}><strong>{simulationState === 'passed' ? 'Payment ready' : simulationState === 'submitted' ? 'Payment sent' : 'Payment preview'}</strong><span>{simulationMessage}</span></div>}
-      {simulationState === 'passed' && order && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {order.amountUsdc} USDC</strong><p>{order.accountName} receives ₦{order.amountNgn}. Ready X will show the final wallet approval; cancelling it sends nothing.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
+      {!trackedOrder && <details className="shieldDetails"><summary>Recover an earlier wallet payment</summary><div className="formGrid"><label>Paycrest order ID<input value={recoveryOrderId} onChange={event => setRecoveryOrderId(event.target.value)} autoComplete="off" /></label><label>Starknet transaction hash<input value={recoveryTransactionHash} onChange={event => setRecoveryTransactionHash(event.target.value)} autoComplete="off" /></label><div className="fieldAction"><button className="secondary" onClick={recoverEarlierPayout} disabled={Boolean(busy) || !recoveryOrderId.trim() || !/^0x[0-9a-fA-F]{1,64}$/.test(recoveryTransactionHash.trim())}>{busy === 'recover-payout' ? 'Recovering...' : 'Recover payment'}</button></div></div><p>KudiRail verifies that the order belongs to this signed-in Starknet account, then compares the exact wallet transaction with Paycrest.</p></details>}
+      {trackedOrder && <PayoutReceipt order={trackedOrder} status={currentOrderStatus} busy={busy} orderExpired={orderExpired} exactAmountCovered={exactAmountCovered} simulationState={simulationState} onSimulate={simulate} onReconcile={reconcilePayout} onExport={exportPayoutEvidence} onClose={resetOrder} />}
+      {trackedOrder && <div className={`simulation ${simulationState}`}><strong>{trackedOrder.displayStatus === 'reconciliation-required' ? 'Provider reconciliation needed' : simulationState === 'passed' ? 'Payment ready' : trackedOrder.transactionHash ? currentOrderStatus : 'Payment preview'}</strong><span>{trackedOrder.reconciliationReason || trackedOrder.chainMessage || simulationMessage}</span></div>}
+      {simulationState === 'passed' && trackedOrder && !trackedOrder.transactionHash && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {trackedOrder.amountUsdc} USDC</strong><p>{trackedOrder.accountName} receives ₦{trackedOrder.amountNgn}. Ready X will show the final wallet approval; cancelling it sends nothing.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
     </section>
   </div>
 
@@ -851,6 +930,8 @@ export function App() {
     onMutateAccount={mutateAccount}
     onRefreshOrders={loadPaycrestOrders}
     onRefreshHistory={refreshHistory}
+    onReconcilePayout={reconcilePayout}
+    onExportPayoutEvidence={exportPayoutEvidence}
     onConnect={connectWallet}
     onReadBalance={checkBalance}
     onDisconnect={leaveWallet}
@@ -971,6 +1052,8 @@ function ProductShell({
   onMutateAccount,
   onRefreshOrders,
   onRefreshHistory,
+  onReconcilePayout,
+  onExportPayoutEvidence,
   onConnect,
   onReadBalance,
   onDisconnect,
@@ -1001,6 +1084,8 @@ function ProductShell({
   onMutateAccount: (path: string, init: RequestInit) => Promise<any>
   onRefreshOrders: () => void
   onRefreshHistory: () => void
+  onReconcilePayout: (orderId: string) => void
+  onExportPayoutEvidence: (orderId: string) => void
   onConnect: () => void
   onReadBalance: () => void
   onDisconnect: () => void
@@ -1278,6 +1363,7 @@ function ProductShell({
         {nav.map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => onSection(item.id)}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}
       </nav>
       <div className="railBottom">
+        <a href="https://kudirail-production.up.railway.app/docs" target="_blank" rel="noreferrer"><AppIcon name="route" /><span>KudiRail docs</span></a>
         <button className={section === 'settings' ? 'active' : ''} onClick={() => onSection('settings')}><AppIcon name="building" /><span>Business profile</span></button>
       </div>
     </aside>
@@ -1355,7 +1441,7 @@ function ProductShell({
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Treasury shields</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked treasury shields" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
         {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
-        <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
+        <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
       </div>}
 
       {section === 'providers' && <div className="sectionStack">
@@ -1465,16 +1551,57 @@ function TreasuryShieldRow({ shield, readiness }: { shield: TreasuryShieldRecord
   </article>
 }
 
-function PaycrestOrderRow({ order, compact = false }: { order: PaycrestOrderSummary; compact?: boolean }) {
-  const initiated = order.status.toLowerCase() === 'initiated'
-  const expired = order.status.toLowerCase() === 'expired'
-  const final = ['validated', 'settled'].includes(order.status.toLowerCase())
+function PayoutReceipt({ order, status, busy, orderExpired, exactAmountCovered, simulationState, onSimulate, onReconcile, onExport, onClose }: {
+  order: Phase0Order
+  status: string
+  busy: string
+  orderExpired: boolean
+  exactAmountCovered: boolean
+  simulationState: string
+  onSimulate: () => void
+  onReconcile: (orderId: string) => void
+  onExport: (orderId: string) => void
+  onClose: () => void
+}) {
+  const needsAttention = order.displayStatus === 'reconciliation-required' || order.displayStatus === 'payment-failed'
+  const terminal = ['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(order.displayStatus)
+  return <div className="orderReceipt">
+    <div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={needsAttention ? 'expired' : ''}>{status}</em></div>
+    <div className="receiptGrid">
+      <div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div>
+      <div><span>Recipient receives</span><strong>NGN {order.amountNgn}</strong></div>
+      <div><span>You pay</span><strong>{order.amountUsdc} USDC</strong></div>
+      <div><span>Payment window</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div>
+    </div>
+    <div className="actions">
+      {!order.transactionHash && order.displayStatus === 'ready-to-pay' && <button onClick={onSimulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered}>{busy === 'simulate' ? 'Opening preview...' : simulationState === 'passed' ? 'Preview again' : 'Preview payment'}</button>}
+      {order.transactionHash && <>
+        <button onClick={() => onReconcile(order.id)} disabled={Boolean(busy)}>{busy === `reconcile:${order.id}` ? 'Checking...' : 'Check payment status'}</button>
+        <button className="ghost" onClick={() => onExport(order.id)} disabled={Boolean(busy)}>{busy === `evidence:${order.id}` ? 'Exporting...' : 'Export incident evidence'}</button>
+        <a href={`https://starkscan.co/tx/${order.transactionHash}`} target="_blank" rel="noreferrer">Open on Starkscan</a>
+      </>}
+      {terminal && <button className="ghost" onClick={onClose} disabled={Boolean(busy)}>Close details</button>}
+    </div>
+  </div>
+}
+
+function PaycrestOrderRow({ order, compact = false, busy = '', onReconcile, onExport }: { order: PaycrestOrderSummary; compact?: boolean; busy?: string; onReconcile?: (orderId: string) => void; onExport?: (orderId: string) => void }) {
+  const final = order.displayStatus === 'completed' || order.displayStatus === 'refunded'
+  const blocked = order.displayStatus === 'reconciliation-required' || order.displayStatus === 'payment-failed'
   const time = order.updatedAt || order.createdAt
+  const detail = order.displayStatus === 'ready-to-pay' ? 'Order created; no payment submitted' :
+    order.displayStatus === 'payment-submitted' ? 'Transaction saved; checking Starknet' :
+    order.displayStatus === 'awaiting-paycrest-detection' ? 'Starknet payment verified; provider detection pending' :
+    order.displayStatus === 'reconciliation-required' ? 'Onchain payment verified; provider support action needed' :
+    order.displayStatus === 'refunding' ? 'Paycrest is returning the payment' :
+    order.displayStatus === 'refunded' ? 'Refund completed' :
+    order.displayStatus === 'completed' ? 'Bank payout completed' :
+    order.displayStatus === 'payment-window-closed' ? 'No payment was submitted' : 'Payment did not complete'
   return <article className={`historyRow ${compact ? 'compact' : ''}`}>
-    <div className="historyIdentity"><span className="historyMark"><AppIcon name="route" /></span><div><strong>{order.accountName || 'Naira payout'}</strong><span>{order.bankLast4 ? `Account ending ${order.bankLast4}` : order.reference || shortAddress(order.id)}</span></div></div>
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="route" /></span><div><strong>{order.accountName || 'Naira payout'}</strong>{order.transactionHash ? <a href={`https://starkscan.co/tx/${order.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(order.transactionHash)}</a> : <span>{order.bankLast4 ? `Account ending ${order.bankLast4}` : order.reference || shortAddress(order.id)}</span>}</div></div>
     {!compact && <div className="historyAmount"><strong>{order.amountNgn ? `₦${Number(order.amountNgn).toLocaleString()}` : order.amountUsdc ? `${order.amountUsdc} USDC` : 'Amount unavailable'}</strong><span>{order.amountUsdc && order.amountNgn ? `${order.amountUsdc} USDC` : order.network || 'Starknet'}</span></div>}
-    <div className="historyStatus"><span className={`statePill ${final ? 'safe' : initiated ? 'neutral' : 'blocked'}`}>{order.status}</span><small>{initiated ? 'Order created · awaiting deposit' : expired ? 'Expired · deposit not detected' : final ? 'Payout completed' : 'Provider status'}</small></div>
-    {!compact && <div className="historyMeta"><strong>{time ? new Date(time).toLocaleDateString() : '—'}</strong><span>{shortAddress(order.id)}</span></div>}
+    <div className="historyStatus"><span className={`statePill ${final ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{payoutStatusLabels[order.displayStatus]}</span><small>{detail}</small></div>
+    {!compact && <div className="historyMeta"><strong>{time ? new Date(time).toLocaleDateString() : '—'}</strong><span>{shortAddress(order.id)}</span>{order.transactionHash && onReconcile && <button className="rowAction" onClick={() => onReconcile(order.id)} disabled={Boolean(busy)}>Check status</button>}{onExport && <button className="rowAction" onClick={() => onExport(order.id)} disabled={Boolean(busy)}>Export evidence</button>}</div>}
   </article>
 }
 

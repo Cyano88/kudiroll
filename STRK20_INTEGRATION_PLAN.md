@@ -165,7 +165,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 11. Phase 4 — controlled Paycrest settlement boundary
 
-**Status:** planned; live money remains disabled until every exit criterion passes.
+**Status:** durable payout tracking and recovery implementation complete 2026-08-30; Paycrest reconciliation and two additional capped Mainnet certification payouts remain manual checkpoints.
 
 1. Keep `src/server/paycrest.ts` server-only, secrets out of logs/client bundles, and HMAC webhook verification mandatory.
 2. Extend `src/server/phase0-router.ts` with an idempotent order lifecycle: created, awaiting deposit, detected, processing, paid, expired, refunded, failed, and manually reviewed.
@@ -179,6 +179,8 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 **Exit:** a capped end-to-end settlement succeeds or fails safely with a complete sanitized evidence package; no anonymous or automatic-compliance claim appears anywhere.
 
 **Manual check:** use a designated test recipient and smallest safe amount, verify every state transition and webhook signature, confirm the public unshield evidence, and verify completed fiat delivery or automatic recovery. This mainnet action requires explicit confirmation at execution time.
+
+**Recovery slice 2026-08-30:** KudiRail now persists each Paycrest order, wallet submission attempt, immutable Starknet transaction hash, provider lifecycle update, and exact receipt evidence inside the encrypted per-wallet account record. It verifies the canonical USDC transfer from the configured STRK20 pool to the assigned Paycrest address for the exact six-decimal amount; compares that evidence with authenticated Paycrest order state; blocks another order while an outcome is active or unknown; persists signed webhook updates; restores active payouts after refresh; and exports a masked incident package. Paid-but-unattributed orders show Payment submitted, Awaiting Paycrest detection, or Reconciliation required instead of Expired. Existing pre-ledger payments can be imported only after Paycrest ownership matches the signed-in Starknet refund account. No viewing key, note, proof, signer key, or private balance enters KudiRail.
 
 ## 12. Phase 5 — production infrastructure and security
 
