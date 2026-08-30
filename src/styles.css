@@ -955,6 +955,7 @@ label, summary { color: var(--kr-muted); }
 .signInCard {
   border-color: color-mix(in srgb, var(--kr-border) 75%, #fff);
   border-radius: 22px;
+  padding: 40px;
   color: var(--kr-text);
   background: color-mix(in srgb, var(--kr-surface) 92%, transparent);
   box-shadow: var(--kr-shadow-md);
@@ -971,7 +972,8 @@ label, summary { color: var(--kr-muted); }
   text-transform: uppercase;
   letter-spacing: .08em;
 }
-.signInCard h1 { color: var(--kr-text); font-weight: 700; }
+.signInCard h1 { margin-top: 16px; color: var(--kr-text); font-weight: 700; }
+.signInBody { margin-top: 9px; font-size: .78rem; }
 .signInPrimary {
   min-height: 56px;
   border-radius: 12px;
@@ -980,6 +982,9 @@ label, summary { color: var(--kr-muted); }
   box-shadow: 0 12px 26px color-mix(in srgb, var(--kr-brand) 24%, transparent);
 }
 .signInPrimary:hover { background: color-mix(in srgb, var(--kr-brand-strong) 92%, #000); }
+.signInPrimary:focus-visible, .walletStoreLink:focus-visible, .signInPasskey:focus-visible { outline: 3px solid color-mix(in srgb, var(--kr-brand) 28%, transparent); outline-offset: 3px; }
+.signInButtonLabel { display: flex; align-items: center; gap: 11px; }
+.signInButtonLabel > svg { width: 20px; height: 20px; stroke-width: 1.8; }
 .emailAuth { display: grid; gap: 10px; margin-top: 24px; }
 .emailAuth .signInPrimary { margin-top: 0; }
 .emailAuth label { display: grid; gap: 8px; color: var(--kr-muted); font-size: .67rem; font-weight: 800; }
@@ -1007,13 +1012,23 @@ label, summary { color: var(--kr-muted); }
 }
 .emailAuth .signInAlternative { margin-top: 0; }
 .emailAuthNotice { margin: 12px 0 0; color: var(--kr-muted); font-size: .66rem; line-height: 1.5; text-align: center; }
-.signInDivider { display: flex; align-items: center; gap: 10px; margin-top: 24px; color: var(--kr-muted); font-size: .58rem; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
-.signInDivider::before, .signInDivider::after { content: ""; height: 1px; flex: 1; background: var(--kr-border); }
-.embeddedPreview { display: grid; gap: 10px; margin-top: 16px; border: 1px solid var(--kr-border); border-radius: 14px; padding: 15px; background: color-mix(in srgb, var(--kr-brand) 5%, var(--kr-surface)); }
-.embeddedPreview > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.embeddedPreview span { border-radius: 999px; padding: 5px 8px; color: var(--kr-brand-strong); background: color-mix(in srgb, var(--kr-brand) 12%, transparent); font-size: .56rem; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
-.embeddedPreview strong { color: var(--kr-text); font-size: .75rem; }
-.embeddedPreview p { margin: 0; color: var(--kr-muted); font-size: .66rem; line-height: 1.55; }
+.walletMissing { gap: 12px; margin-top: 28px; }
+.walletMissing .signInPrimary { margin-top: 0; }
+.walletStatus { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--kr-muted); font-size: .69rem; }
+.walletStatus > svg { width: 18px; height: 18px; stroke-width: 1.8; }
+.walletStoreLink { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; text-underline-offset: 3px; }
+.walletStoreLink > svg { width: 15px; height: 15px; }
+.signInOptions { overflow: hidden; margin-top: 28px; border: 1px solid var(--kr-border); border-radius: 14px; background: var(--kr-surface); }
+.signInOptionRow { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 11px 14px; color: var(--kr-text); text-align: left; }
+.signInOptionRow + .signInOptionRow { border-top: 1px solid var(--kr-border); }
+.signInOptionRow > svg { flex: 0 0 auto; width: 20px; height: 20px; color: var(--kr-muted); stroke-width: 1.7; }
+.signInOptionRow > span { display: grid; flex: 1; gap: 2px; }
+.signInOptionRow strong { font-size: .7rem; }
+.signInOptionRow small { color: var(--kr-muted); font-size: .59rem; }
+.signInOptionRow:not(button) small { color: var(--kr-brand-strong); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+button.signInOptionRow { width: 100%; border-radius: 0; background: transparent; font-weight: 400; }
+button.signInOptionRow:hover { background: var(--kr-surface-soft); }
+button.signInOptionRow > svg:last-child { width: 17px; height: 17px; }
 .signInPrimary > svg, .signInPrimary > .loadingRing {
   flex: 0 0 auto;
   width: 36px;
@@ -1033,6 +1048,7 @@ label, summary { color: var(--kr-muted); }
 }
 .signInRule { background: var(--kr-border); }
 .signInConsent button { color: var(--kr-brand-strong); }
+.signInPowered i { width: 3px; height: 3px; border-radius: 999px; background: currentColor; }
 .signInPowered strong { color: var(--kr-text); }
 .walletMigration { border-color: var(--kr-border); }
 .walletMissing a { color: var(--kr-brand-strong); }

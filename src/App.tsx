@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
 import {
   ArrowRightIcon,
+  ArrowPathIcon,
+  ArrowTopRightOnSquareIcon,
   ArrowsRightLeftIcon,
   BuildingOffice2Icon,
   ChartBarSquareIcon,
   CheckIcon,
   EllipsisHorizontalIcon,
+  EnvelopeIcon,
   HomeIcon,
+  KeyIcon,
   MoonIcon,
   SunIcon,
   UserGroupIcon,
@@ -303,9 +307,7 @@ export function App() {
       const choice = selectedWallet
         ?? discoveredWallets.find(candidate => /ready/i.test(candidate.name))
         ?? walletChoices.find(candidate => /ready/i.test(candidate.name))
-        ?? discoveredWallets[0]
-        ?? walletChoices[0]
-      if (!choice) throw new Error('No Starknet wallet was detected. Install Ready X or Xverse, then refresh this page.')
+      if (!choice) throw new Error('Ready X was not detected. Install or unlock Ready X, then try again.')
       const connected = await withTimeout(
         connectStarknetWallet(choice),
         60_000,
@@ -857,25 +859,20 @@ function SignInLanding({
       </section>
 
       <section className="signInCard" aria-labelledby="sign-in-title">
-        <div className="signInCardTop"><span>Welcome to KudiRoll</span><em>Early access</em></div>
-        <h1 id="sign-in-title">Open your payroll workspace</h1>
-        <p className="signInBody">KudiRoll currently uses Ready X for secure Starknet access and approval of every wallet transaction.</p>
+        <div className="signInCardTop"><span>Welcome back</span></div>
+        <h1 id="sign-in-title">Sign in to KudiRoll</h1>
+        <p className="signInBody">Open your payroll workspace with Ready X.</p>
 
-        {readyWallets.length ? <div className="walletChoices">{readyWallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening Ready X...' : 'Continue with Ready X'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check for Ready X</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install the official Ready X extension</a></div>}
-        <p className="signInHint">Ready X keeps your keys, private notes and transaction approvals outside KudiRoll.</p>
+        {readyWallets.length ? <div className="walletChoices">{readyWallets.map((candidate, index) => <button className="signInPrimary" key={`${candidate.name}-${index}`} onClick={() => onSignIn(candidate)} disabled={busy}><span className="signInButtonLabel"><WalletIcon aria-hidden="true" /><span>{busy ? 'Opening Ready X...' : 'Continue with Ready X'}</span></span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><div className="walletStatus"><WalletIcon aria-hidden="true" /><strong>Ready X is not connected</strong></div><button className="signInPrimary" onClick={onRefreshWallets} disabled={busy}><span className="signInButtonLabel"><ArrowPathIcon aria-hidden="true" /><span>Check again</span></span><ArrowRightIcon aria-hidden="true" /></button><a className="walletStoreLink" href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Get Ready X <ArrowTopRightOnSquareIcon aria-hidden="true" /></a></div>}
 
-        <div className="signInDivider"><span>Next</span></div>
-        <section className="embeddedPreview" aria-label="Email-first embedded wallet coming soon">
-          <div><span>Coming soon</span><strong>Email-first embedded wallet</strong></div>
-          <p>Open KudiRoll from mobile or desktop without installing an extension. We are completing the Mainnet integration before enabling it.</p>
-        </section>
-
-        <button className="signInAlternative" onClick={onPasskeySignIn} disabled={busy}>{busy ? 'Checking passkey...' : 'Use a saved passkey'}</button>
-        <p className="signInHint">A saved passkey can open an existing workspace. Ready X is still required for wallet actions during early access.</p>
+        <div className="signInOptions" aria-label="Other sign-in options">
+          <div className="signInOptionRow"><EnvelopeIcon aria-hidden="true" /><span><strong>Email sign-in</strong><small>Coming soon</small></span></div>
+          <button className="signInOptionRow signInPasskey" onClick={onPasskeySignIn} disabled={busy}><KeyIcon aria-hidden="true" /><span><strong>{busy ? 'Checking passkey...' : 'Use a saved passkey'}</strong><small>For existing workspaces</small></span><ArrowRightIcon aria-hidden="true" /></button>
+        </div>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
-        <div className="signInPowered"><span>Powered by</span><strong>Starknet</strong></div>
+        <div className="signInPowered"><span>Early access</span><i aria-hidden="true" /><span>Powered by</span><strong>Starknet</strong></div>
       </section>
     </main>
 
