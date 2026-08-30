@@ -960,6 +960,17 @@ label, summary { color: var(--kr-muted); }
   box-shadow: var(--kr-shadow-md);
 }
 .signInCardTop, .signInBody, .signInHint, .signInConsent, .signInPowered { color: var(--kr-muted); }
+.signInCardTop em {
+  border: 1px solid color-mix(in srgb, var(--kr-brand) 35%, var(--kr-border));
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--kr-brand-strong);
+  background: color-mix(in srgb, var(--kr-brand) 9%, var(--kr-surface));
+  font-size: .58rem;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
 .signInCard h1 { color: var(--kr-text); font-weight: 700; }
 .signInPrimary {
   min-height: 56px;
@@ -996,6 +1007,13 @@ label, summary { color: var(--kr-muted); }
 }
 .emailAuth .signInAlternative { margin-top: 0; }
 .emailAuthNotice { margin: 12px 0 0; color: var(--kr-muted); font-size: .66rem; line-height: 1.5; text-align: center; }
+.signInDivider { display: flex; align-items: center; gap: 10px; margin-top: 24px; color: var(--kr-muted); font-size: .58rem; font-weight: 900; text-transform: uppercase; letter-spacing: .12em; }
+.signInDivider::before, .signInDivider::after { content: ""; height: 1px; flex: 1; background: var(--kr-border); }
+.embeddedPreview { display: grid; gap: 10px; margin-top: 16px; border: 1px solid var(--kr-border); border-radius: 14px; padding: 15px; background: color-mix(in srgb, var(--kr-brand) 5%, var(--kr-surface)); }
+.embeddedPreview > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.embeddedPreview span { border-radius: 999px; padding: 5px 8px; color: var(--kr-brand-strong); background: color-mix(in srgb, var(--kr-brand) 12%, transparent); font-size: .56rem; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+.embeddedPreview strong { color: var(--kr-text); font-size: .75rem; }
+.embeddedPreview p { margin: 0; color: var(--kr-muted); font-size: .66rem; line-height: 1.55; }
 .signInPrimary > svg, .signInPrimary > .loadingRing {
   flex: 0 0 auto;
   width: 36px;

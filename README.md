@@ -4,11 +4,11 @@ Wallet-secured private payroll for Nigerian businesses. Businesses create reusab
 
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Email-first OTP access, first-time verified-email wallet linking, passkey security, typed STRK20 operations and rollback-safe routing are implemented and tested; email delivery credentials, embedded-wallet Mainnet certification and operational drills remain release gates. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Ready X is the clearly labeled early-access wallet path; email-first embedded signing is shown as coming soon until its Mainnet integration is certified. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
-1. Enter a work email and verify the six-digit code. A new user links an existing Starknet account once and secures the account with a device passkey; returning users can use email or their passkey.
+1. Connect Ready X on Starknet Mainnet for early access. A saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.
 2. Create separate teams for the groups the business pays.
 3. Save each worker's name, registered Starknet address, and default private-USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.

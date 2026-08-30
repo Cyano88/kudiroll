@@ -720,17 +720,6 @@ export function App() {
       busy={Boolean(busy)}
       wallets={walletChoices}
       legalView={legalView}
-      emailConfigured={emailDeliveryConfigured}
-      email={emailAddress}
-      emailCode={emailCode}
-      emailStep={emailAuthStep}
-      emailNotice={emailAuthNotice}
-      onEmailChange={value => { setEmailAddress(value); setEmailAuthNotice('') }}
-      onEmailCodeChange={value => { setEmailCode(value.replace(/\D/g, '').slice(0, 6)); setEmailAuthNotice('') }}
-      onRequestEmail={requestEmailSignIn}
-      onVerifyEmail={verifyEmailSignIn}
-      onResetEmail={() => { setEmailAuthStep('request'); setEmailCode(''); setEmailAuthNotice(''); setPendingEmailLink(false) }}
-      onSecureDevice={secureEmailAccount}
       onPasskeySignIn={signInWithPasskey}
       onRefreshWallets={() => { void import('./wallet-runtime').then(({ walletStore }) => walletStore._refreshInjectedWallets()) }}
       onSignIn={signIn}
@@ -824,17 +813,6 @@ function SignInLanding({
   busy,
   wallets,
   legalView,
-  emailConfigured,
-  email,
-  emailCode,
-  emailStep,
-  emailNotice,
-  onEmailChange,
-  onEmailCodeChange,
-  onRequestEmail,
-  onVerifyEmail,
-  onResetEmail,
-  onSecureDevice,
   onPasskeySignIn,
   onRefreshWallets,
   onSignIn,
@@ -846,17 +824,6 @@ function SignInLanding({
   busy: boolean
   wallets: WalletWithStarknetFeatures[]
   legalView: 'terms' | 'privacy' | null
-  emailConfigured: boolean
-  email: string
-  emailCode: string
-  emailStep: 'request' | 'verify' | 'link' | 'secure'
-  emailNotice: string
-  onEmailChange: (value: string) => void
-  onEmailCodeChange: (value: string) => void
-  onRequestEmail: () => void
-  onVerifyEmail: () => void
-  onResetEmail: () => void
-  onSecureDevice: () => void
   onPasskeySignIn: () => void
   onRefreshWallets: () => void
   onSignIn: (wallet?: WalletWithStarknetFeatures) => void
@@ -873,6 +840,7 @@ function SignInLanding({
         title: 'Privacy',
         body: 'KudiRoll saves team names, worker names, Starknet addresses, default amounts, and pay-run records to your wallet-secured account. KudiRoll never asks for or stores wallet private keys, viewing keys, proofs, OTPs, recovery phrases, or bank details.',
       }
+  const readyWallets = wallets.filter(candidate => /ready/i.test(candidate.name))
 
   return <div className="signInGate">
     <div className="signInBackdrop" aria-hidden="true" />
@@ -885,33 +853,25 @@ function SignInLanding({
           <h2>Pay your people.<br />Keep payroll private.</h2>
           <p>Prepare team payments, review every amount, and use private USDC from one secure Starknet workspace.</p>
         </div>
-        <div className="signInTrust">Secure wallet-linked access</div>
+        <div className="signInTrust">Self-custodial Starknet payroll</div>
       </section>
 
       <section className="signInCard" aria-labelledby="sign-in-title">
-        <div className="signInCardTop"><span>Welcome to KudiRoll</span></div>
-        <h1 id="sign-in-title">Sign in to continue</h1>
-        <p className="signInBody">{emailConfigured ? emailStep === 'verify' ? 'Enter the code sent to your email.' : emailStep === 'link' ? 'Your email is verified. Connect Ready X to finish setup.' : emailStep === 'secure' ? 'Protect this account with your device before continuing.' : 'Use your work email. KudiRoll keeps transaction approval separate from email access.' : 'Email sign-in is being activated. Use your existing passkey in the meantime.'}</p>
+        <div className="signInCardTop"><span>Welcome to KudiRoll</span><em>Early access</em></div>
+        <h1 id="sign-in-title">Open your payroll workspace</h1>
+        <p className="signInBody">KudiRoll currently uses Ready X for secure Starknet access and approval of every wallet transaction.</p>
 
-        {emailConfigured && emailStep === 'request' && <div className="emailAuth">
-          <label>Work email<input type="email" value={email} onChange={event => onEmailChange(event.target.value)} placeholder="you@company.com" autoComplete="email" disabled={busy} /></label>
-          <button className="signInPrimary" onClick={onRequestEmail} disabled={busy || !email.trim()}><span>{busy ? 'Sending code...' : 'Continue with email'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
-        </div>}
-        {emailConfigured && emailStep === 'verify' && <div className="emailAuth">
-          <label>Six-digit code<input value={emailCode} onChange={event => onEmailCodeChange(event.target.value)} placeholder="000000" inputMode="numeric" autoComplete="one-time-code" disabled={busy} /></label>
-          <button className="signInPrimary" onClick={onVerifyEmail} disabled={busy || emailCode.length !== 6}><span>{busy ? 'Verifying...' : 'Verify and continue'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
-          <button className="signInAlternative" onClick={onResetEmail} disabled={busy}>Use a different email</button>
-        </div>}
-        {emailConfigured && emailStep === 'link' && (wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Connect ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check again</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install Ready X extension</a></div>)}
-        {emailConfigured && emailStep === 'secure' && <div className="emailAuth">
-          <button className="signInPrimary" onClick={onSecureDevice} disabled={busy}><span>{busy ? 'Securing device...' : 'Secure this device'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>
-          <p className="signInHint">Your device credential protects account recovery. Email alone cannot approve wallet transactions or recover funds.</p>
-        </div>}
-        {!emailConfigured && <button className="signInPrimary" onClick={onPasskeySignIn} disabled={busy}><span>{busy ? 'Checking passkey...' : 'Continue with passkey'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>}
-        {emailConfigured && emailStep === 'request' && <button className="signInAlternative" onClick={onPasskeySignIn} disabled={busy}>Use passkey instead</button>}
-        {emailConfigured && emailStep === 'request' && <details className="walletMigration"><summary>Set up with an existing Starknet account</summary>{wallets.length ? <div className="walletChoices">{wallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening wallet...' : 'Connect ' + candidate.name}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check again</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install Ready X extension</a></div>}</details>}
-        {emailNotice && <p className="emailAuthNotice" role="status">{emailNotice}</p>}
-        <p className="signInHint">Email opens your workspace. Ready X stays in your control and approves every wallet transaction.</p>
+        {readyWallets.length ? <div className="walletChoices">{readyWallets.map(candidate => <button className="signInPrimary" key={candidate.name} onClick={() => onSignIn(candidate)} disabled={busy}><span>{busy ? 'Opening Ready X...' : 'Continue with Ready X'}</span>{busy ? <LoadingRing /> : <ArrowRightIcon aria-hidden="true" />}</button>)}</div> : <div className="walletMissing"><p>Ready X was not detected. Install or unlock the browser extension, then check again.</p><button className="walletInstall" onClick={onRefreshWallets}>Check for Ready X</button><a href="https://chromewebstore.google.com/detail/ready-x/dlcobpjiigpikoobohmabehhmhfoodbb" target="_blank" rel="noreferrer">Install the official Ready X extension</a></div>}
+        <p className="signInHint">Ready X keeps your keys, private notes and transaction approvals outside KudiRoll.</p>
+
+        <div className="signInDivider"><span>Next</span></div>
+        <section className="embeddedPreview" aria-label="Email-first embedded wallet coming soon">
+          <div><span>Coming soon</span><strong>Email-first embedded wallet</strong></div>
+          <p>Open KudiRoll from mobile or desktop without installing an extension. We are completing the Mainnet integration before enabling it.</p>
+        </section>
+
+        <button className="signInAlternative" onClick={onPasskeySignIn} disabled={busy}>{busy ? 'Checking passkey...' : 'Use a saved passkey'}</button>
+        <p className="signInHint">A saved passkey can open an existing workspace. Ready X is still required for wallet actions during early access.</p>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
