@@ -112,10 +112,10 @@ function privacyActionError(reason: unknown) {
 }
 
 function transactionLabel(result: unknown) {
-  if (!result || typeof result !== 'object') return 'Wallet accepted the private withdrawal request.'
+  if (!result || typeof result !== 'object') return 'Payment submitted. Paycrest is confirming the deposit.'
   const record = result as Record<string, unknown>
   const value = record.transaction_hash ?? record.transactionHash ?? record.tx_hash ?? record.txHash
-  return value ? `Wallet submitted transaction ${String(value)}` : 'Wallet accepted the private withdrawal request.'
+  return value ? `Payment submitted. Transaction ${String(value)} is waiting for Paycrest confirmation.` : 'Payment submitted. Paycrest is confirming the deposit.'
 }
 
 export function App() {
@@ -131,7 +131,10 @@ export function App() {
     const requested = new URLSearchParams(window.location.search).get('section') as ProductSection | null
     return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab'].includes(requested) ? requested : 'overview'
   })
-  const [enteredApp, setEnteredApp] = useState(() => ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section')))
+  const previewMode = ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section'))
+  const [enteredApp, setEnteredApp] = useState(previewMode)
+  const [sessionStatus, setSessionStatus] = useState<'checking' | 'signed-in' | 'signed-out' | 'error'>(previewMode ? 'signed-in' : 'checking')
+  const [sessionError, setSessionError] = useState('')
   const [legalView, setLegalView] = useState<'terms' | 'privacy' | null>(null)
   const [publicProbe, setPublicProbe] = useState<PublicProbe | null>(null)
   const [probeError, setProbeError] = useState('')
@@ -155,11 +158,9 @@ export function App() {
   const [liveOrdersEnabled, setLiveOrdersEnabled] = useState(false)
   const [simulationState, setSimulationState] = useState<'idle' | 'passed' | 'failed' | 'submitted'>('idle')
   const [simulationMessage, setSimulationMessage] = useState('Create a verified Paycrest order to begin.')
-  const [liveConfirmation, setLiveConfirmation] = useState('')
   const [busy, setBusy] = useState('')
   const [now, setNow] = useState(Date.now())
   const [shieldAmount, setShieldAmount] = useState('1')
-  const [shieldConfirmation, setShieldConfirmation] = useState('')
   const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
   const [shieldMessage, setShieldMessage] = useState('Simulate first. Shielding then requires a public token approval and a public pool deposit in your wallet.')
   const [shieldTransactionHash, setShieldTransactionHash] = useState('')
@@ -172,11 +173,41 @@ export function App() {
   const [emailAuthNotice, setEmailAuthNotice] = useState('')
   const [pendingEmailLink, setPendingEmailLink] = useState(false)
 
-  const walletAddress = wallet?.address || ''
+  const walletAddress = wallet?.address || accountData?.walletAddress || ''
   const accountFingerprint = `${bankCode}:${accountIdentifier}`
   const accountIsVerified = verifiedAccount?.fingerprint === accountFingerprint
   const orderExpired = order ? Date.parse(order.validUntil) <= now : true
   const exactAmountCovered = order && privateBalanceUsdc !== null ? Number(order.amountUsdc) <= privateBalanceUsdc : false
+  const currentOrderStatus = order ? paycrestOrders.find(item => item.id === order.id)?.status || order.status : ''
+
+  async function restoreSession() {
+    if (previewMode) return
+    setSessionStatus('checking')
+    setSessionError('')
+    try {
+      const response = await fetch(kudiRailUrl('/api/account/me', import.meta.env.VITE_KUDIRAIL_API_URL), {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      })
+      const data = await response.json().catch(() => null)
+      if (response.status === 401) {
+        setAccountData(null)
+        setEnteredApp(false)
+        setSessionStatus('signed-out')
+        return
+      }
+      if (!response.ok) throw new Error(data?.error || `Session check returned HTTP ${response.status}.`)
+      setAccountData(data.account)
+      setEnteredApp(true)
+      setSessionStatus('signed-in')
+    } catch (error) {
+      setSessionError(readableError(error))
+      setSessionStatus('error')
+    }
+  }
+
+  useEffect(() => { void restoreSession() }, [])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15_000)
@@ -330,6 +361,9 @@ export function App() {
         'Wallet connection timed out. Reopen the wallet and try again.',
       )
       requireStarknetMainnet(connected.chainId)
+      if (accountData?.walletAddress && BigInt(connected.account.address) !== BigInt(accountData.walletAddress)) {
+        throw new Error('This workspace belongs to a different Ready X account. Switch accounts in Ready X and try again.')
+      }
       setWallet(connected.account)
       setWalletVersions(connected.supportedApiVersions)
       return connected.account
@@ -364,6 +398,7 @@ export function App() {
       } else {
         setAccountData(session.account)
         setEnteredApp(true)
+        setSessionStatus('signed-in')
       }
     } catch (error) {
       alert(`Could not open your KudiRoll account. ${readableError(error)}`)
@@ -380,6 +415,7 @@ export function App() {
       const session = await accountJson('/api/account/passkeys/authentication/verify', { method: 'POST', body: JSON.stringify({ response }) })
       setAccountData(session.account)
       setEnteredApp(true)
+      setSessionStatus('signed-in')
     } catch (error) {
       alert(`Could not sign in with this passkey. ${readableError(error)}`)
     } finally {
@@ -456,6 +492,7 @@ export function App() {
       setEmailAuthStep('request')
       setEmailAuthNotice('')
       setEnteredApp(true)
+      setSessionStatus('signed-in')
     }
   }
 
@@ -545,6 +582,7 @@ export function App() {
     setTreasuryError('')
     resetOrder()
     setEnteredApp(false)
+    setSessionStatus('signed-out')
   }
 
   async function deleteKudiRollAccount(confirmation: string) {
@@ -586,7 +624,7 @@ export function App() {
     try {
       await withTimeout(simulateUsdcShield(wallet, shieldAmount), 90_000)
       setShieldState('passed')
-      setShieldMessage('Simulation passed for ' + shieldAmount + ' USDC. To continue, type SHIELD USDC. Your wallet will show two public prompts: token approval, then pool deposit.')
+      setShieldMessage('Preview complete. No funds moved. Ready X will show the public token approval and pool deposit before anything is submitted.')
     } catch (error) {
       setShieldState('failed')
       setShieldMessage(privacyActionError(error))
@@ -596,7 +634,7 @@ export function App() {
   }
 
   async function shieldUsdc() {
-    if (!wallet || shieldState !== 'passed' || shieldConfirmation !== 'SHIELD USDC') return
+    if (!wallet || shieldState !== 'passed') return
     setBusy('submit-shield')
     try {
       const result = await withTimeout(submitUsdcShield(wallet, shieldAmount), 180_000, 'The wallet did not return before timeout. Check your wallet and Starkscan before retrying; the transaction may still have been submitted.')
@@ -605,7 +643,6 @@ export function App() {
       setShieldState('submitted')
       setShieldTransactionHash(result.transaction_hash)
       setShieldMessage('Shield transaction submitted. KudiRoll is checking Starknet finality and the required 10-block maturity window.')
-      setShieldConfirmation('')
       await loadTreasuryReadiness()
     } catch (error) {
       setShieldState('failed')
@@ -620,7 +657,6 @@ export function App() {
     setOrderError('')
     setSimulationState('idle')
     setSimulationMessage('Create a verified Paycrest order to begin.')
-    setLiveConfirmation('')
   }
 
   function changeBank(value: string) {
@@ -683,8 +719,7 @@ export function App() {
       void loadPaycrestOrders()
       setNow(Date.now())
       setSimulationState('idle')
-      setSimulationMessage('Order created. Simulate its exact private withdrawal before paying.')
-      setLiveConfirmation('')
+      setSimulationMessage('Order created. Preview the exact payment before approving it.')
       if (Number(next.amountUsdc) > privateBalanceUsdc) {
         setOrderError('Paycrest created the order, but its exact USDC total exceeds your current private balance. Do not pay this order.')
       }
@@ -704,7 +739,7 @@ export function App() {
       if (!exactAmountCovered) throw new Error('The exact order amount exceeds the last checked private USDC balance.')
       await withTimeout(simulatePaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 90_000)
       setSimulationState('passed')
-      setSimulationMessage('Ready accepted the simulation. Review the exact order below, then unlock wallet approval.')
+      setSimulationMessage('Preview complete. No funds moved. Review the details, then approve the payment in Ready X.')
     } catch (error) {
       setSimulationState('failed')
       setSimulationMessage(`Simulation rejected: ${readableError(error)}`)
@@ -714,20 +749,23 @@ export function App() {
   }
 
   async function submit() {
-    if (!wallet || !order || simulationState !== 'passed' || liveConfirmation !== 'WITHDRAW') return
+    if (!wallet || !order || simulationState !== 'passed') return
     setBusy('submit')
     try {
       if (Date.parse(order.validUntil) <= Date.now()) throw new Error('This Paycrest order expired before approval. Do not send to it.')
       const result = await withTimeout(submitPaycrestWithdraw(wallet, order.receiveAddress, order.amountUsdc), 180_000)
       setSimulationState('submitted')
       setSimulationMessage(transactionLabel(result))
-      setLiveConfirmation('')
       void loadPaycrestOrders()
     } catch (error) {
-      setSimulationMessage(`Not submitted: ${readableError(error)}`)
+      setSimulationMessage(privacyActionError(error))
     } finally {
       setBusy('')
     }
+  }
+
+  if (!enteredApp && (sessionStatus === 'checking' || sessionStatus === 'error')) {
+    return <SessionGate theme={theme} error={sessionStatus === 'error' ? sessionError : ''} onRetry={restoreSession} onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')} />
   }
 
   if (!enteredApp) {
@@ -773,9 +811,9 @@ export function App() {
         <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Continue to payment' : 'Payout unavailable'}</button>
       </div>
       {orderError && <div className="errorBox"><strong>Could not continue</strong><span>{orderError}</span></div>}
-      {order && <div className="orderReceipt"><div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={orderExpired ? 'expired' : ''}>{orderExpired ? 'Expired' : order.status}</em></div><div className="receiptGrid"><div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div><div><span>Recipient receives</span><strong>₦{order.amountNgn}</strong></div><div><span>You send</span><strong>{order.amountUsdc} USDC</strong></div><div><span>Pay before</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div></div><div className="actions"><button onClick={simulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered || simulationState === 'submitted'}>{busy === 'simulate' ? 'Waiting for Ready…' : simulationState === 'passed' ? 'Check again' : 'Check payment in Ready'}</button>{simulationState !== 'submitted' && <button className="ghost" onClick={resetOrder} disabled={Boolean(busy)}>Discard order</button>}</div></div>}
-      {order && <div className={`simulation ${simulationState}`}><strong>{simulationState === 'passed' ? 'Ready check passed' : simulationState === 'submitted' ? 'Wallet submitted payment' : 'Wallet check'}</strong><span>{simulationMessage}</span></div>}
-      {simulationState === 'passed' && order && <details><summary>Review and approve payment</summary><div className="danger"><strong>This requests a real {order.amountUsdc} USDC private withdrawal.</strong><p>Type WITHDRAW, then approve inside Ready X.</p><input value={liveConfirmation} onChange={event => setLiveConfirmation(event.target.value)} autoComplete="off" placeholder="WITHDRAW" /><button className="dangerButton" onClick={submit} disabled={liveConfirmation !== 'WITHDRAW' || Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for Ready…' : 'Pay with Ready X'}</button></div></details>}
+      {order && <div className="orderReceipt"><div className="receiptHead"><div><span>Paycrest order</span><strong>{order.id}</strong></div><em className={orderExpired ? 'expired' : ''}>{orderExpired ? 'Expired' : currentOrderStatus}</em></div><div className="receiptGrid"><div><span>Recipient</span><strong>{order.accountName}</strong><small>Account ending {order.bankLast4}</small></div><div><span>Recipient receives</span><strong>₦{order.amountNgn}</strong></div><div><span>You pay</span><strong>{order.amountUsdc} USDC</strong></div><div><span>Pay before</span><strong>{new Date(order.validUntil).toLocaleString()}</strong></div></div><div className="actions"><button onClick={simulate} disabled={Boolean(busy) || orderExpired || !exactAmountCovered || simulationState === 'submitted'}>{busy === 'simulate' ? 'Opening preview…' : simulationState === 'passed' ? 'Preview again' : 'Preview payment'}</button>{simulationState !== 'submitted' && <button className="ghost" onClick={resetOrder} disabled={Boolean(busy)}>Discard order</button>}</div></div>}
+      {order && <div className={`simulation ${simulationState}`}><strong>{simulationState === 'passed' ? 'Payment ready' : simulationState === 'submitted' ? 'Payment sent' : 'Payment preview'}</strong><span>{simulationMessage}</span></div>}
+      {simulationState === 'passed' && order && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {order.amountUsdc} USDC</strong><p>{order.accountName} receives ₦{order.amountNgn}. Ready X will show the final wallet approval; cancelling it sends nothing.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
     </section>
   </div>
 
@@ -786,9 +824,9 @@ export function App() {
     <details className="shieldDetails"><summary>How funding works</summary><div className="shieldSteps"><div><strong>1</strong><span>Approve USDC</span></div><div><strong>2</strong><span>Deposit funds</span></div><div><strong>3</strong><span>Wait for confirmation</span></div></div><p>Ready X shows the current network and pool fees before you approve.</p></details>
     <div className="treasuryTracker"><div><span>Status</span><strong>{treasuryReadiness?.message || 'No funding transaction is being tracked.'}</strong></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
     {treasuryError && <div className="inlineError">{treasuryError}</div>}
-    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle'); setShieldConfirmation('') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Checking in Ready X...' : 'Review in Ready X'}</button></div>
+    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
     {shieldState !== 'idle' && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
-    {shieldState === 'passed' && <div className="shieldApproval"><label>Type SHIELD USDC to continue<input value={shieldConfirmation} onChange={event => setShieldConfirmation(event.target.value)} placeholder="SHIELD USDC" autoComplete="off" /></label><button onClick={shieldUsdc} disabled={shieldConfirmation !== 'SHIELD USDC' || Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for wallet...' : 'Shield ' + (shieldAmount || '0') + ' USDC'}</button></div>}
+    {shieldState === 'passed' && <div className="shieldApproval"><span>Ready X will request the required USDC approvals. Cancelling sends nothing.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
 
   return <ProductShell
@@ -803,6 +841,7 @@ export function App() {
     busy={busy}
     paycrestOrders={paycrestOrders}
     paycrestConfigured={paycrestConfigured}
+    liveOrdersEnabled={liveOrdersEnabled}
     orderHistoryError={orderHistoryError}
     paycrestPilot={paycrestPilot}
     shieldPanel={shieldPanel}
@@ -821,6 +860,17 @@ export function App() {
     onRevokePasskey={revokePasskey}
     onToggleTheme={() => setTheme(current => current === 'light' ? 'dark' : 'light')}
   />
+}
+
+function SessionGate({ theme, error, onRetry, onToggleTheme }: { theme: Theme; error: string; onRetry: () => void; onToggleTheme: () => void }) {
+  return <div className="sessionGate">
+    <ThemeToggle theme={theme} onToggle={onToggleTheme} className="signInThemeToggle" />
+    <div className="sessionCard">
+      <img src="/kudiroll-mark.svg" alt="" />
+      <strong>KudiRoll</strong>
+      {error ? <><h1>We could not restore your workspace</h1><p>{error}</p><button onClick={onRetry}><ArrowPathIcon aria-hidden="true" /> Try again</button></> : <><LoadingRing /><p>Opening your workspace…</p></>}
+    </div>
+  </div>
 }
 
 function SignInLanding({
@@ -885,7 +935,7 @@ function SignInLanding({
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
-        <div className="signInPowered"><span>Early access</span><i aria-hidden="true" /><span>Powered by</span><strong>Starknet</strong></div>
+        <div className="signInPowered"><span>Private payroll</span><i aria-hidden="true" /><span>Powered by</span><strong>Starknet</strong></div>
       </section>
     </main>
 
@@ -911,6 +961,7 @@ function ProductShell({
   busy,
   paycrestOrders,
   paycrestConfigured,
+  liveOrdersEnabled,
   orderHistoryError,
   paycrestPilot,
   shieldPanel,
@@ -940,6 +991,7 @@ function ProductShell({
   busy: string
   paycrestOrders: PaycrestOrderSummary[]
   paycrestConfigured: boolean | null
+  liveOrdersEnabled: boolean
   orderHistoryError: string
   paycrestPilot: React.ReactNode
   shieldPanel: React.ReactNode
@@ -975,7 +1027,6 @@ function ProductShell({
   const [emailVerificationCode, setEmailVerificationCode] = useState('')
   const [batchState, setBatchState] = useState<'idle' | 'passed' | 'submitted' | 'unknown' | 'failed'>('idle')
   const [batchMessage, setBatchMessage] = useState('')
-  const [batchConfirmation, setBatchConfirmation] = useState('')
   const [profileForm, setProfileForm] = useState({ ownerName: '', businessName: '', jobTitle: '', email: '', phone: '' })
   const [profileNotice, setProfileNotice] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
@@ -1151,7 +1202,7 @@ function ProductShell({
   }
 
   async function submitBatch() {
-    if (!wallet || !activePayRun || !activeExecutionManifest || batchState !== 'passed' || batchConfirmation !== 'PAY TEAM') return
+    if (!wallet || !activePayRun || !activeExecutionManifest || batchState !== 'passed') return
     if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
@@ -1178,7 +1229,6 @@ function ProductShell({
       const transactionHash = await withTimeout(submission, 180_000, 'Payroll wallet outcome is still unknown after three minutes.')
       setBatchState('submitted')
       setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
-      setBatchConfirmation('')
     } catch (error) {
       const message = readableError(error)
       if (/outcome is still unknown/i.test(message)) {
@@ -1294,7 +1344,7 @@ function ProductShell({
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
               {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Simulate ' + activePayRun.items.length + ' private transfers' : 'Waiting for treasury readiness'}</button> : null}
-              {batchState === 'passed' && <div className="batchApproval"><strong>One approval will submit every transfer atomically.</strong><p>If any action cannot be prepared, the batch should not be submitted. Type PAY TEAM to continue.</p><input value={batchConfirmation} onChange={event => setBatchConfirmation(event.target.value)} placeholder="PAY TEAM" autoComplete="off" /><button onClick={submitBatch} disabled={batchConfirmation !== 'PAY TEAM' || Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for Ready…' : 'Sign and pay team once'}</button></div>}
+              {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Review the recipients and total above. Ready X will show the final approval; cancelling it sends nothing.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for approval…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
         </section>
@@ -1312,7 +1362,7 @@ function ProductShell({
         <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
         {shieldPanel}
         <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
-        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status="Guided test" tone="neutral" detail="Try a separate test before using this route for payroll." action="Open guided test" onAction={() => onSection('lab')} /></div>
+        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Live' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Pay a verified Nigerian bank account from private USDC." action="Open bank payout" onAction={() => onSection('lab')} /></div>
       </div>}
 
       {section === 'lab' && paycrestPilot}
@@ -1355,7 +1405,7 @@ function ProductShell({
     {mobileMoreOpen && <div className="mobileMoreBackdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setMobileMoreOpen(false) }}>
       <section id="mobile-more-menu" className="mobileMoreSheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
         <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu"><XMarkIcon aria-hidden="true" /></button></div>
-        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and guided Naira testing</small></span><ArrowRightIcon aria-hidden="true" /></button>
+        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and Naira bank payouts</small></span><ArrowRightIcon aria-hidden="true" /></button>
         <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><ArrowRightIcon aria-hidden="true" /></button>
       </section>
     </div>}

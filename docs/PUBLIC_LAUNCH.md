@@ -6,7 +6,7 @@ KudiRoll is a public alpha backed by the standalone KudiRail service and managed
 
 - React, Vite, and TypeScript frontend with an Express backend.
 - Wallet-signed accounts, reusable teams and workers, immutable pay-run snapshots, and history.
-- STRK20 batch simulation, literal `PAY TEAM` confirmation, one wallet submission, and transaction-hash persistence.
+- STRK20 batch preview, explicit wallet approval, one wallet submission, and transaction-hash persistence.
 - Responsive light and dark interfaces, including mobile navigation.
 - Paycrest is isolated as a guided settlement pilot and live order creation is disabled by default.
 - Local typecheck, tests, and production build pass.
@@ -79,3 +79,7 @@ Final transaction status:
 Application pay-run status:
 Recovery/retry needed:
 ```
+
+## Verified payout evidence
+
+- `0x55b6551094333c8d98bbc0560b9569afb11d3951c51c8a47fd8ec7307c068d9` — successful Mainnet private USDC payment to the Paycrest settlement address; verified against the configured STRK20 pool event.

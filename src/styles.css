@@ -1077,6 +1077,47 @@ button.signInOptionRow > svg:last-child { width: 17px; height: 17px; }
   border-radius: 50%;
   animation: kr-spin .72s linear infinite;
 }
+
+.sessionGate {
+  position: relative;
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 24px;
+  color: var(--kr-text);
+  background: radial-gradient(circle at 50% 25%, var(--kr-brand-soft), transparent 34%), var(--kr-bg);
+}
+.sessionCard { display: grid; width: min(360px, 100%); place-items: center; gap: 12px; text-align: center; }
+.sessionCard img { width: 54px; height: 60px; object-fit: contain; }
+.sessionCard > strong { font-size: .86rem; letter-spacing: -.02em; }
+.sessionCard h1 { margin: 8px 0 0; font-size: 1.35rem; letter-spacing: -.04em; }
+.sessionCard p { margin: 0; color: var(--kr-muted); font-size: .76rem; line-height: 1.55; }
+.sessionCard button { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; }
+.sessionCard button svg { width: 17px; height: 17px; }
+
+.paymentApproval {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 16px;
+  border: 1px solid color-mix(in srgb, var(--kr-brand) 30%, var(--kr-border));
+  border-radius: var(--kr-radius-md);
+  padding: 18px;
+  background: var(--kr-brand-soft);
+}
+.paymentApproval > div { display: grid; gap: 4px; }
+.paymentApproval span { color: var(--kr-brand-strong); font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.paymentApproval strong { font-size: 1rem; }
+.paymentApproval p { max-width: 580px; margin: 0; color: var(--kr-muted); font-size: .7rem; line-height: 1.5; }
+.paymentApproval button { flex: 0 0 auto; }
+.shieldApproval { align-items: center; }
+.shieldApproval > span { color: var(--kr-muted); font-size: .7rem; line-height: 1.5; }
+
+@media (max-width: 720px) {
+  .paymentApproval { align-items: stretch; flex-direction: column; }
+  .paymentApproval button { width: 100%; }
+}
 @keyframes kr-spin { to { transform: rotate(360deg); } }
 
 .mobileMoreHead > button svg { width: 20px; height: 20px; }

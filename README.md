@@ -4,11 +4,11 @@ Wallet-secured private payroll for Nigerian businesses. Businesses create reusab
 
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
-> **Release status:** [public alpha live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Ready X is the clearly labeled early-access wallet path; email-first embedded signing is shown as coming soon until its Mainnet integration is certified. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+> **Release status:** [production candidate live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Ready X is the current wallet path; email-first embedded signing remains labeled as coming soon until its Mainnet and STRK20 integration is certified. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
 
 ## Current product flow
 
-1. Connect Ready X on Starknet Mainnet for early access. A saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.
+1. Connect Ready X on Starknet Mainnet. A secure session or saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.
 2. Create separate teams for the groups the business pays.
 3. Save each worker's name, registered Starknet address, and default private-USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
@@ -38,7 +38,7 @@ STRK20 pool fees are calculated and displayed by the privacy wallet at approval 
 
 ## Paycrest pilot
 
-The separate Naira payout pilot verifies the recipient, creates one Paycrest order, simulates the exact STRK20 withdrawal, and only exposes wallet approval after explicit confirmations. Paycrest currently creates one settlement order per recipient, so it is not presented as the atomic private team-payment path.
+The separate Naira payout route verifies the recipient, creates one Paycrest order, previews the exact STRK20 payment, and asks Ready X for the final wallet approval. Paycrest currently creates one settlement order per recipient, so it is not presented as the atomic private team-payment path.
 
 Live Naira settlement remains a pilot until the Starknet route passes deposit detection, payout, status tracking, and recovery certification end to end.
 
