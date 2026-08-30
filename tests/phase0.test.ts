@@ -179,7 +179,7 @@ test('creates a validated Starknet order using the server-verified account name'
     }
     return new Response(JSON.stringify({ data: {
       id: 'order-1', status: 'initiated', amountToPay: '0.75',
-      providerAccount: { receiveAddress: '0x123', validUntil: '2030-01-01T00:00:00.000Z' },
+      providerAccount: { network: 'starknet', receiveAddress: `0x${'1'.repeat(64)}`, validUntil: '2030-01-01T00:00:00.000Z' },
     } }), { status: 200 })
   }
   try {
@@ -188,7 +188,7 @@ test('creates a validated Starknet order using the server-verified account name'
       refundAddress: '0xabc', confirmation: 'CREATE TEST ORDER',
     }, fakeFetch as typeof fetch)
     assert.equal(order.amountUsdc, '0.75')
-    assert.equal(order.receiveAddress, '0x123')
+    assert.equal(order.receiveAddress, `0x${'1'.repeat(64)}`)
     assert.equal(order.accountName, 'TEST RECIPIENT')
     assert.equal(order.bankLast4, '6789')
     assert.equal(calls[1].body.destination.recipient.accountName, 'TEST RECIPIENT')

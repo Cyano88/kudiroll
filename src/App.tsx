@@ -208,8 +208,19 @@ export function App() {
 
   useEffect(() => {
     if (section === 'lab') {
-      void loadInstitutions()
-      void localJson('/api/phase0/health').then(data => setLiveOrdersEnabled(Boolean(data.liveOrdersEnabled))).catch(() => setLiveOrdersEnabled(false))
+      void localJson('/api/phase0/health').then(data => {
+        const configured = data.paycrest?.apiConfigured === true
+        setPaycrestConfigured(configured)
+        setLiveOrdersEnabled(Boolean(data.liveOrdersEnabled))
+        if (configured) void loadInstitutions()
+        else {
+          setInstitutions([])
+          setInstitutionError('')
+        }
+      }).catch(() => {
+        setPaycrestConfigured(false)
+        setLiveOrdersEnabled(false)
+      })
     }
     if (enteredApp && accountData && (section === 'overview' || section === 'activity' || section === 'lab')) void loadPaycrestOrders()
   }, [section, enteredApp, accountData?.walletAddress])
@@ -231,6 +242,12 @@ export function App() {
     const timer = window.setInterval(() => void loadTreasuryReadiness(), 20_000)
     return () => window.clearInterval(timer)
   }, [accountData?.walletAddress, treasuryReadiness?.status])
+
+  useEffect(() => {
+    if (!accountData?.walletAddress || !paycrestOrders.some(item => !['settled', 'refunded', 'expired', 'cancelled', 'canceled', 'failed'].includes(item.status.toLowerCase()))) return
+    const timer = window.setInterval(() => void loadPaycrestOrders(), 15_000)
+    return () => window.clearInterval(timer)
+  }, [accountData?.walletAddress, paycrestOrders.map(item => `${item.id}:${item.status}`).join('|')])
 
   async function localJson(path: string, init: RequestInit = {}, attempts = 2) {
     let lastError: unknown
@@ -733,7 +750,7 @@ export function App() {
 
   const paycrestPilot = <div className="sectionStack paycrestPilot">
     <section className="panel sectionIntro">
-      <div><span className="panelKicker">Guided payout test</span><h2>Test a Nigerian bank payout</h2><p>Use a small test to verify the recipient, lock a live quote, and review the exact private USDC payment before Ready asks for approval.</p></div>
+      <div><span className="panelKicker">Guided payout test</span><h2>Test a Nigerian bank payout</h2><p>Use a small test to verify the recipient, check the current rate, and review the exact private USDC payment before Ready asks for approval.</p></div>
       <span className={`statePill ${liveOrdersEnabled ? 'safe' : 'neutral'}`}>{liveOrdersEnabled ? 'Test enabled' : 'Read-only demo'}</span>
     </section>
 
@@ -746,9 +763,9 @@ export function App() {
 
     <section className="panel payoutComposer">
       <div className="flowSteps"><span className={accountIsVerified ? 'done' : 'active'}>1 Recipient</span><span className={order ? 'done' : accountIsVerified ? 'active' : ''}>2 Order</span><span className={simulationState === 'passed' || simulationState === 'submitted' ? 'done' : order ? 'active' : ''}>3 Wallet check</span><span className={simulationState === 'submitted' ? 'done' : simulationState === 'passed' ? 'active' : ''}>4 Approve</span></div>
-      {!liveOrdersEnabled && <div className="routeNotice"><strong>Read-only demo</strong><span>The existing Paycrest order history remains live. Creating another order is disabled until Starknet deposits are detected reliably.</span></div>}
+      {!liveOrdersEnabled && <div className="routeNotice"><strong>Read-only demo</strong><span>{paycrestConfigured === false ? 'Paycrest production credentials are not configured yet.' : 'Creating another order is disabled until the production settlement check is complete.'}</span></div>}
       <div className="formGrid">
-        <label>Bank<select value={bankCode} onChange={event => changeBank(event.target.value)} disabled={Boolean(busy) || Boolean(order)}><option value="">{institutionError ? 'Banks unavailable' : institutions.length ? 'Select bank' : 'Loading banks…'}</option>{institutions.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
+        <label>Bank<select value={bankCode} onChange={event => changeBank(event.target.value)} disabled={paycrestConfigured === false || Boolean(busy) || Boolean(order)}><option value="">{paycrestConfigured === false ? 'Unavailable' : institutionError ? 'Banks unavailable' : institutions.length ? 'Select bank' : 'Loading banks…'}</option>{institutions.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
         <label>Account number<input value={accountIdentifier} onChange={event => changeAccount(event.target.value)} inputMode="numeric" autoComplete="off" placeholder="10 digits" disabled={Boolean(busy) || Boolean(order)} /></label>
         <div className="fieldAction"><button className="secondary" onClick={verifyAccount} disabled={Boolean(busy) || !bankCode || accountIdentifier.length !== 10 || Boolean(order)}>{busy === 'verify-account' ? 'Verifying…' : accountIsVerified ? 'Verified' : 'Verify account'}</button></div>
       </div>
