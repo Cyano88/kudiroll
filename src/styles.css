@@ -1192,3 +1192,25 @@ html[data-theme='dark'] .signInPrimary > svg { color: #062b19; background: #c8f8
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+.signInDemo { display: grid; grid-template-columns: 20px minmax(0, 1fr) 16px; align-items: center; gap: 11px; margin-top: 10px; border: 1px solid #cbd6c8; border-radius: 8px; padding: 12px 13px; color: #263523; background: #eef3eb; text-decoration: none; }
+.signInDemo:hover { border-color: #aebfaa; background: #e7eee3; }
+.signInDemo > svg { width: 19px; height: 19px; }
+.signInDemo > span { display: grid; gap: 2px; }
+.signInDemo strong { font-size: .7rem; }
+.signInDemo small { color: #758071; font-size: .61rem; }
+.demoExit { border: 1px solid #cad4c7; border-radius: 8px; padding: .65rem .9rem; color: #344630; background: #f8faf7; font-size: .7rem; font-weight: 800; text-decoration: none; }
+.demoBanner { display: flex; align-items: center; gap: 12px; margin-top: 18px; border: 1px solid #cad9c5; border-radius: 9px; padding: 12px 14px; color: #3d5138; background: #edf4e9; }
+.demoBanner span { flex: 0 0 auto; border-radius: 999px; padding: 5px 8px; color: #fff; background: #405b39; font-size: .61rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+.demoBanner strong { font-size: .68rem; line-height: 1.45; }
+.demoContent { min-width: 0; margin: 0; border: 0; padding: 0; }
+.demoContent:disabled { opacity: 1; }
+.demoContent:disabled button, .demoContent:disabled input, .demoContent:disabled select { cursor: not-allowed; }
+html[data-theme='dark'] .signInDemo, html[data-theme='dark'] .demoBanner { color: #c6ddce; border-color: #3a4a3d; background: #1a241c; }
+html[data-theme='dark'] .signInDemo small { color: #94a198; }
+html[data-theme='dark'] .demoExit { color: #c6ddce; border-color: #364039; background: #1b221d; }
+
+@media (max-width: 680px) {
+  .demoBanner { align-items: flex-start; flex-direction: column; }
+}
+.demoReadonlyLabel { color: #c8d2c5; font-size: .63rem; font-weight: 750; }

@@ -267,6 +267,15 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Manual check:** save a reserve and maximum in Payout methods, refresh and confirm persistence, attempt an over-limit draft, pause payouts and verify both a new draft and an existing draft are blocked, then unpause. No wallet transaction is required. https://strk20-by-example.org/starknet-wallet-api/overview
 
+## 14C. Phase 7C — public read-only demo workspace ✅ headless complete 2026-08-31
+
+**Status:** KudiRoll now exposes `/demo` as a signed-out, wallet-free product tour with sanitized sample business data and the project's three public Mainnet evidence hashes. Demo mode skips session restoration, wallet discovery, balance consent, provider polling and every account API; a disabled fieldset blocks all money and data controls while product navigation, documentation and Starkscan evidence links remain available.
+
+**Verification:** 77 tests pass, including route isolation and secret-shape checks; typecheck and production build pass; Playwright verified Home and History on desktop plus a 390 × 844 mobile viewport, zero demo console errors, and no non-static network request.
+
+**Manual check:** open `https://kudiroll-production.up.railway.app/demo` in a signed-out browser, move through Team, Pay run, History and Payout methods, confirm controls remain disabled, and confirm Exit demo returns to sign-in. No wallet approval is required. https://strk20-by-example.org/starknet-wallet-api/overview
+
+
 ## 15. Testing strategy
 
 - Headless gate for every phase: clean install, typecheck, all tests, production build, dependency audit, and focused new regression tests.

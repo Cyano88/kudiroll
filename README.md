@@ -5,6 +5,8 @@ Wallet-secured payroll using a connected Ready account's shielded USDC balance f
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
 > **Release status:** [production candidate live on Railway](https://kudiroll-production.up.railway.app). KudiRoll App is cut over to KudiRail with encrypted PostgreSQL accounts and durable authentication. Ready X is the current wallet path; email-first embedded signing remains labeled as coming soon until its Mainnet and STRK20 integration is certified. See [STRK20 integration plan](STRK20_INTEGRATION_PLAN.md), [Public launch](docs/PUBLIC_LAUNCH.md), and [Starknet integration](docs/STARKNET_INTEGRATION.md).
+>
+> **Judges and reviewers:** [explore the public read-only workspace](https://kudiroll-production.up.railway.app/demo) without installing a wallet or signing in. It uses clearly labeled sample business data, exposes verified public transaction evidence, and disables every money or data mutation.
 
 ## Current product flow
 

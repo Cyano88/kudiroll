@@ -41,6 +41,7 @@ import { isConnectableStarknetWallet, startInjectedWalletDiscovery } from './wal
 import { createRailPayRun, resolveUnknownRailPayRun, updateRailPayRun, verifyRailPayRun } from './rail/client'
 import type { PayRunExecutionManifest } from './rail/contracts'
 import { kudiRailUrl } from './rail/api-origin'
+import { demoAccount, demoPayouts, demoTreasuryReadiness, isPublicDemoPath } from './demo-workspace'
 
 type Check = { ok: boolean; detail: string }
 type PublicProbe = {
@@ -132,6 +133,7 @@ const payoutStatusLabels: Record<Phase0Order['displayStatus'], string> = {
 }
 
 export function App() {
+  const demoMode = isPublicDemoPath(window.location.pathname)
   const [theme, setTheme] = useState<Theme>(() => {
     try {
       const saved = window.localStorage.getItem('kudiroll-theme')
@@ -145,18 +147,18 @@ export function App() {
     return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab'].includes(requested) ? requested : 'overview'
   })
   const previewMode = ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section'))
-  const [enteredApp, setEnteredApp] = useState(previewMode)
-  const [sessionStatus, setSessionStatus] = useState<'checking' | 'signed-in' | 'signed-out' | 'error'>(previewMode ? 'signed-in' : 'checking')
+  const [enteredApp, setEnteredApp] = useState(previewMode || demoMode)
+  const [sessionStatus, setSessionStatus] = useState<'checking' | 'signed-in' | 'signed-out' | 'error'>(previewMode || demoMode ? 'signed-in' : 'checking')
   const [sessionError, setSessionError] = useState('')
   const [legalView, setLegalView] = useState<'terms' | 'privacy' | null>(null)
   const [publicProbe, setPublicProbe] = useState<PublicProbe | null>(null)
   const [probeError, setProbeError] = useState('')
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null)
   const [walletChoices, setWalletChoices] = useState<WalletWithStarknetFeatures[]>([])
-  const [accountData, setAccountData] = useState<AccountData | null>(null)
+  const [accountData, setAccountData] = useState<AccountData | null>(demoMode ? demoAccount as AccountData : null)
   const [walletVersions, setWalletVersions] = useState<string[]>([])
-  const [privateBalance, setPrivateBalance] = useState('Not checked')
-  const [privateBalanceUsdc, setPrivateBalanceUsdc] = useState<number | null>(null)
+  const [privateBalance, setPrivateBalance] = useState(demoMode ? '1.42 USDC' : 'Not checked')
+  const [privateBalanceUsdc, setPrivateBalanceUsdc] = useState<number | null>(demoMode ? 1.42 : null)
   const [institutions, setInstitutions] = useState<Institution[]>([])
   const [institutionError, setInstitutionError] = useState('')
   const [bankCode, setBankCode] = useState('')
@@ -165,11 +167,11 @@ export function App() {
   const [amountNgn, setAmountNgn] = useState('1000')
   const [order, setOrder] = useState<Phase0Order | null>(null)
   const [orderError, setOrderError] = useState('')
-  const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>([])
+  const [paycrestOrders, setPaycrestOrders] = useState<PaycrestOrderSummary[]>(demoMode ? demoPayouts as PaycrestOrderSummary[] : [])
   const [orderHistoryError, setOrderHistoryError] = useState('')
   const [recoveryOrderId, setRecoveryOrderId] = useState('')
   const [recoveryTransactionHash, setRecoveryTransactionHash] = useState('')
-  const [paycrestConfigured, setPaycrestConfigured] = useState<boolean | null>(null)
+  const [paycrestConfigured, setPaycrestConfigured] = useState<boolean | null>(demoMode ? true : null)
   const [liveOrdersEnabled, setLiveOrdersEnabled] = useState(false)
   const [simulationState, setSimulationState] = useState<'idle' | 'passed' | 'failed' | 'submitted'>('idle')
   const [simulationMessage, setSimulationMessage] = useState('Create a verified Paycrest order to begin.')
@@ -179,7 +181,7 @@ export function App() {
   const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
   const [shieldMessage, setShieldMessage] = useState('Simulate first. Shielding then requires a public token approval and a public pool deposit in your wallet.')
   const [shieldTransactionHash, setShieldTransactionHash] = useState('')
-  const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(null)
+  const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(demoMode ? demoTreasuryReadiness : null)
   const [treasuryError, setTreasuryError] = useState('')
   const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false)
   const [emailAddress, setEmailAddress] = useState('')
@@ -197,7 +199,7 @@ export function App() {
   const currentOrderStatus = trackedOrder ? payoutStatusLabels[trackedOrder.displayStatus] : ''
 
   async function restoreSession() {
-    if (previewMode) return
+    if (previewMode || demoMode) return
     setSessionStatus('checking')
     setSessionError('')
     try {
@@ -231,6 +233,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (demoMode) return
     let active = true
     let stop = () => {}
     // Wallet discovery is optional on the public sign-in screen. Load it after
@@ -253,6 +256,7 @@ export function App() {
   }, [theme])
 
   useEffect(() => {
+    if (demoMode) return
     if (section === 'lab') {
       void localJson('/api/phase0/health').then(data => {
         const configured = data.paycrest?.apiConfigured === true
@@ -272,6 +276,7 @@ export function App() {
   }, [section, enteredApp, accountData?.walletAddress])
 
   useEffect(() => {
+    if (demoMode) return
     if (!accountData?.walletAddress) {
       setTreasuryReadiness(null)
       return
@@ -280,16 +285,19 @@ export function App() {
   }, [accountData?.walletAddress])
 
   useEffect(() => {
+    if (demoMode) return
     void localJson('/api/account/email/status').then(data => setEmailDeliveryConfigured(data.configured === true)).catch(() => setEmailDeliveryConfigured(false))
   }, [])
 
   useEffect(() => {
+    if (demoMode) return
     if (!accountData?.walletAddress || !treasuryReadiness || !['submitted', 'maturing', 'unknown'].includes(treasuryReadiness.status)) return
     const timer = window.setInterval(() => void loadTreasuryReadiness(), 20_000)
     return () => window.clearInterval(timer)
   }, [accountData?.walletAddress, treasuryReadiness?.status])
 
   useEffect(() => {
+    if (demoMode) return
     if (!accountData?.walletAddress || !paycrestOrders.some(item => !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(item.displayStatus))) return
     const timer = window.setInterval(() => void loadPaycrestOrders(), 15_000)
     return () => window.clearInterval(timer)
@@ -918,6 +926,7 @@ export function App() {
   </section>
 
   return <ProductShell
+    demoMode={demoMode}
     theme={theme}
     section={section}
     onSection={setSection}
@@ -1022,6 +1031,7 @@ function SignInLanding({
           <div className="signInOptionRow"><EnvelopeIcon aria-hidden="true" /><span><strong>Email sign-in</strong><small>Coming soon</small></span></div>
           <button className="signInOptionRow signInPasskey" onClick={onPasskeySignIn} disabled={busy}><KeyIcon aria-hidden="true" /><span><strong>{busy ? 'Checking passkey...' : 'Use a saved passkey'}</strong><small>For existing workspaces</small></span><ArrowRightIcon aria-hidden="true" /></button>
         </div>
+        <a className="signInDemo" href="/demo"><ChartBarSquareIcon aria-hidden="true" /><span><strong>Explore the demo workspace</strong><small>No wallet or sign-in required</small></span><ArrowRightIcon aria-hidden="true" /></a>
 
         <div className="signInRule" />
         <p className="signInConsent">By continuing, you agree to the <button onClick={() => onOpenLegal('terms')}>Terms</button> and acknowledge the <button onClick={() => onOpenLegal('privacy')}>Privacy notice</button>.</p>
@@ -1040,6 +1050,7 @@ function SignInLanding({
 }
 
 function ProductShell({
+  demoMode,
   theme,
   section,
   onSection,
@@ -1072,6 +1083,7 @@ function ProductShell({
   onRevokePasskey,
   onToggleTheme,
 }: {
+  demoMode: boolean
   theme: Theme
   section: ProductSection
   onSection: (section: ProductSection) => void
@@ -1437,10 +1449,12 @@ function ProductShell({
         <div><span className="eyebrow">KudiRoll payroll</span><h1>{pageTitle[section]}</h1></div>
         <div className="topActions">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-          {!wallet ? <button className="compactButton" onClick={onConnect} disabled={Boolean(busy)}>{busy === 'wallet' ? 'Connecting…' : 'Connect wallet'}</button> : <button className="walletChip" onClick={onReadBalance} title="Check available balance"><span>{shortAddress(walletAddress)}</span><i>{privateBalanceUsdc === null ? 'Check balance' : `${privateBalanceUsdc} USDC`}</i></button>}
+          {demoMode ? <a className="demoExit" href="/">Exit demo</a> : !wallet ? <button className="compactButton" onClick={onConnect} disabled={Boolean(busy)}>{busy === 'wallet' ? 'Connecting…' : 'Connect wallet'}</button> : <button className="walletChip" onClick={onReadBalance} title="Check available balance"><span>{shortAddress(walletAddress)}</span><i>{privateBalanceUsdc === null ? 'Check balance' : `${privateBalanceUsdc} USDC`}</i></button>}
         </div>
       </header>
 
+      {demoMode && <div className="demoBanner"><span>Read-only demo</span><strong>Explore a sample payroll workspace. No wallet is connected and no action can move funds.</strong></div>}
+      <fieldset className="demoContent" disabled={demoMode} aria-label={demoMode ? 'Read-only sample workspace' : undefined}>
       {section === 'overview' && <div className="dashboardLayout">
         <div className="dashboardMain">
           <section className="welcomeStrip">
@@ -1452,8 +1466,8 @@ function ProductShell({
             <article className="balanceCard">
               <div className="metricHead"><span>Available to pay</span><AppIcon name="wallet" /></div>
               <strong>{privateBalanceUsdc === null ? '—' : privateBalanceUsdc.toFixed(6)}</strong>
-              <small>{!wallet ? 'Connect your wallet to see your private USDC' : privateBalanceUsdc === null ? privateBalance : 'Private USDC available for payroll'}</small>
-              <div className="balanceActions">{!wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={() => onSection('providers')}>Add funds</button></>}</div>
+              <small>{demoMode ? 'Sample private USDC available for payroll' : !wallet ? 'Connect your wallet to see your private USDC' : privateBalanceUsdc === null ? privateBalance : 'Private USDC available for payroll'}</small>
+              <div className="balanceActions">{demoMode ? <span className="demoReadonlyLabel">Sample balance</span> : !wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={() => onSection('providers')}>Add funds</button></>}</div>
             </article>
             <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => onSection('workers')}>Manage teams</button></article>
           </div>
@@ -1556,6 +1570,7 @@ function ProductShell({
           <button className="dangerButton" onClick={deleteBusinessAccount} disabled={deleteConfirmation !== 'DELETE KUDIROLL ACCOUNT' || Boolean(accountAction)}>{accountAction === 'delete-account' ? 'Deleting account…' : 'Delete account permanently'}</button>
         </section>
       </div>}
+      </fieldset>
     </section>
 
     {mobileMoreOpen && <div className="mobileMoreBackdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setMobileMoreOpen(false) }}>
