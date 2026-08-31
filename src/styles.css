@@ -287,6 +287,11 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .previewBanner strong, .previewBanner span { display: block; }
 .previewBanner strong { font-size: .72rem; }
 .previewBanner span { color: #737b6e; font-size: .65rem; }
+.payoutMode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.payoutMode button { display: grid; gap: 4px; text-align: left; border: 1px solid #d9ddd5; border-radius: 9px; padding: 13px 14px; color: #41483e; background: #fff; }
+.payoutMode button.active { border-color: #526b4a; background: #edf2ea; box-shadow: inset 0 0 0 1px #526b4a; }
+.payoutMode strong { font-size: .72rem; }
+.payoutMode span { color: #737b6e; font-size: .64rem; line-height: 1.45; }
 .composerHead strong { display: block; margin-top: 3px; font-size: 1.4rem; }
 .payrollRows { margin-top: 18px; }
 .payrollRow { grid-template-columns: 18px auto minmax(0, 1fr) 180px; }
@@ -458,6 +463,7 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
   .dataRow { grid-template-columns: auto minmax(0, 1fr) auto; }
   .dataRow .statePill { display: none; }
   .payrollRow { grid-template-columns: 18px auto minmax(0, 1fr); }
+  .payoutMode { grid-template-columns: 1fr; }
   .payrollRow label { grid-column: 1 / -1; text-align: left; }
   .payrollRow input { text-align: left; }
   .composerFooter { align-items: flex-start; flex-direction: column; }
@@ -623,6 +629,9 @@ html[data-theme='dark'] .payrollComposer { background: transparent; box-shadow: 
 html[data-theme='dark'] .payrollComposer > .emptyState { background: #172019; box-shadow: inset 3px 0 #4f8d67, 0 1px 2px #0005; }
 html[data-theme='dark'] .previewBanner { color: #b7d4c0; border-color: #4c9167; background: #19251d; }
 html[data-theme='dark'] .previewBanner span { color: #87968b; }
+html[data-theme='dark'] .payoutMode button { color: #c5cec7; border-color: #303a33; background: #151a17; }
+html[data-theme='dark'] .payoutMode button.active { border-color: #4c9167; background: #19251d; box-shadow: inset 0 0 0 1px #4c9167; }
+html[data-theme='dark'] .payoutMode span { color: #87968b; }
 html[data-theme='dark'] .workerCheck { accent-color: #32c98b; }
 html[data-theme='dark'] .draftNotice { color: #b6d5bf; background: #1b2a20; }
 html[data-theme='dark'] .batchReview { border-color: #334039; background: #151b17; box-shadow: inset 3px 0 #32c98b; }

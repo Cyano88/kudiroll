@@ -104,6 +104,14 @@ export function buildPrivateTransferAction(recipient: string, amountUsdc: string
 
 export type PrivatePayrollItem = { recipient: string; amountUsdc: string }
 
+export function buildPublicPayrollActions(items: PrivatePayrollItem[]) {
+  if (!items.length) throw new Error('Select at least one payroll recipient.')
+  const actions = items.map(item => buildWithdrawAction(item.recipient, item.amountUsdc))
+  const recipients = actions.map(action => BigInt(action.recipient).toString(16))
+  if (new Set(recipients).size !== recipients.length) throw new Error('Each payroll recipient can appear only once.')
+  return actions
+}
+
 export function buildPrivatePayrollActions(items: PrivatePayrollItem[]) {
   if (!items.length) throw new Error('Select at least one payroll recipient.')
   const actions = items.map(item => buildPrivateTransferAction(item.recipient, item.amountUsdc))
@@ -118,6 +126,14 @@ export async function simulatePrivatePayroll(wallet: Strk20Wallet, items: Privat
 
 export async function submitPrivatePayroll(wallet: Strk20Wallet, items: PrivatePayrollItem[]) {
   return wallet.strk20InvokeTransaction(buildPrivatePayrollActions(items) as STRK20_ACTION[])
+}
+
+export async function simulatePublicPayroll(wallet: Strk20Wallet, items: PrivatePayrollItem[]) {
+  return wallet.strk20PrepareInvoke(buildPublicPayrollActions(items) as STRK20_ACTION[], true)
+}
+
+export async function submitPublicPayroll(wallet: Strk20Wallet, items: PrivatePayrollItem[]) {
+  return wallet.strk20InvokeTransaction(buildPublicPayrollActions(items) as STRK20_ACTION[])
 }
 
 export async function readPrivateUsdcBalance(wallet: Strk20Wallet) {

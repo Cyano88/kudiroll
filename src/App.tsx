@@ -26,9 +26,11 @@ import {
   requireStarknetMainnet,
   readPrivateUsdcBalance,
   simulatePrivatePayroll,
+  simulatePublicPayroll,
   simulatePaycrestWithdraw,
   simulateUsdcShield,
   submitPrivatePayroll,
+  submitPublicPayroll,
   submitPaycrestWithdraw,
   submitUsdcShield,
   supportsStrk20Api,
@@ -78,7 +80,7 @@ type ConnectedWallet = WalletAccountV6
 type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
 type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
-type SavedPayRun = { id: string; teamId: string; teamName: string; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
+type SavedPayRun = { id: string; teamId: string; teamName: string; settlementMode?: 'public-wallet' | 'private'; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
 type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
@@ -1108,6 +1110,7 @@ function ProductShell({
   const [workerError, setWorkerError] = useState('')
   const [draftNotice, setDraftNotice] = useState('')
   const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({})
+  const [settlementMode, setSettlementMode] = useState<'public-wallet' | 'private'>('public-wallet')
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, boolean>>({})
   const [accountAction, setAccountAction] = useState('')
   const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
@@ -1260,11 +1263,11 @@ function ProductShell({
     if (totalDraft > privateBalanceUsdc) return setDraftNotice('The total is higher than your available private USDC balance.')
     setAccountAction('payrun')
     try {
-      const result = await createRailPayRun(onMutateAccount, { teamId: selectedTeam.id, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
+      const result = await createRailPayRun(onMutateAccount, { teamId: selectedTeam.id, settlementMode, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
       setActivePayRun(result.payRun)
       setActiveExecutionManifest(result.executionManifest)
       setBatchState('idle')
-      setBatchMessage('Review this saved snapshot, then ask Ready to simulate the complete private batch.')
+      setBatchMessage(settlementMode === 'private' ? 'Review this saved snapshot, then check the fully private batch in Ready.' : 'Review this saved snapshot, then check the wallet payout in Ready.')
       setDraftNotice('Pay run saved as a draft. Nothing was sent.')
     } catch (error) { setDraftNotice(readableError(error)) }
     finally { setAccountAction('') }
@@ -1273,32 +1276,44 @@ function ProductShell({
   async function simulateBatch() {
     if (!wallet || !activePayRun || !activeExecutionManifest) return
     if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
+    const privateMode = activeExecutionManifest.settlementMode === 'private'
+    if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Verify a mature shield or check an existing spendable private balance before preparing payroll.')
     setAccountAction('simulate-batch')
     try {
-      await withTimeout(simulatePrivatePayroll(wallet, activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))), 90_000)
+      const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
+      await withTimeout(privateMode ? simulatePrivatePayroll(wallet, items) : simulatePublicPayroll(wallet, items), 90_000)
       await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'prepared' })
       setActivePayRun(current => current ? { ...current, status: 'prepared' } : current)
       setBatchState('passed')
-      setBatchMessage(`Ready accepted all ${activePayRun.items.length} private transfers as one atomic batch.`)
+      setBatchMessage(privateMode ? `Ready accepted all ${activePayRun.items.length} private transfers as one atomic batch.` : `Ready accepted all ${activePayRun.items.length} wallet payouts as one atomic transaction.`)
     } catch (error) {
       setBatchState('failed')
       const message = readableError(error)
-      setBatchMessage(/NOT_REGISTERED/i.test(message) ? 'At least one worker is not registered for private transfers in Ready. Register every receiving wallet, then retry.' : `Ready rejected the batch: ${message}`)
+      setBatchMessage(/USER_REFUSED|USER_REJECTED|rejected by user|cancelled/i.test(message)
+        ? 'Ready approval was cancelled. No payment was sent.'
+        : privateMode
+        ? 'This fully private batch could not be prepared. Every recipient must first enable private transfers in a compatible wallet. No payment was sent.'
+        : /INSUFFICIENT|NOT ENOUGH|BALANCE.*LOW/i.test(message)
+          ? 'The private treasury cannot cover this payout and its current pool fees. Reduce the total or add funds. No payment was sent.'
+          : 'Ready could not prepare this wallet payout. No payment was sent; check Ready and try again.')
     } finally { setAccountAction('') }
   }
 
   async function submitBatch() {
     if (!wallet || !activePayRun || !activeExecutionManifest || batchState !== 'passed') return
     if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
+    const privateMode = activeExecutionManifest.settlementMode === 'private'
+    if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
     setAccountAction('submit-batch')
     try {
       await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting' })
       setActivePayRun(current => current ? { ...current, status: 'submitting', submissionAttemptedAt: new Date().toISOString() } : current)
-      const submission = submitPrivatePayroll(wallet, activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))).then(async result => {
+      const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
+      const submission = (privateMode ? submitPrivatePayroll(wallet, items) : submitPublicPayroll(wallet, items)).then(async result => {
         const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
         const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
         if (!transactionHash) throw new Error('Payroll wallet outcome is still unknown because Ready returned no transaction hash.')
@@ -1311,12 +1326,12 @@ function ProductShell({
         }
         setActivePayRun(current => current ? { ...current, status: 'submitted', transactionHash } : current)
         setBatchState('submitted')
-        setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
+        setBatchMessage(`${privateMode ? 'Private payroll' : 'Wallet payroll'} submitted in one transaction: ${shortAddress(transactionHash)}`)
         return transactionHash
       })
       const transactionHash = await withTimeout(submission, 180_000, 'Payroll wallet outcome is still unknown after three minutes.')
       setBatchState('submitted')
-      setBatchMessage(`Private payroll submitted in one transaction: ${shortAddress(transactionHash)}`)
+      setBatchMessage(`${privateMode ? 'Private payroll' : 'Wallet payroll'} submitted in one transaction: ${shortAddress(transactionHash)}`)
     } catch (error) {
       const message = readableError(error)
       if (/outcome is still unknown/i.test(message)) {
@@ -1424,15 +1439,19 @@ function ProductShell({
         <section className="panel payrollComposer">
           {selectedTeam?.workers.length ? <>
             <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
+            <div className="payoutMode" aria-label="Payroll privacy">
+              <button className={settlementMode === 'public-wallet' ? 'active' : ''} onClick={() => { setSettlementMode('public-wallet'); setActivePayRun(null); setActiveExecutionManifest(null); setDraftNotice('') }}><strong>Pay any Starknet wallet</strong><span>No recipient setup. Recipient addresses and amounts are public.</span></button>
+              <button className={settlementMode === 'private' ? 'active' : ''} onClick={() => { setSettlementMode('private'); setActivePayRun(null); setActiveExecutionManifest(null); setDraftNotice('') }}><strong>Fully private</strong><span>Hides recipients and amounts. Every recipient must already support private transfers.</span></button>
+            </div>
             <div className="composerHead"><div><span>{selectedTeam.name}</span><strong>{totalDraft.toFixed(6)} USDC</strong></div><button className="plainButton" onClick={() => setSelectedWorkers(Object.fromEntries(selectedTeam.workers.map(worker => [worker.id, selectedItems.length !== selectedTeam.workers.length])))}>{selectedItems.length === selectedTeam.workers.length ? 'Clear selection' : 'Select everyone'}</button></div>
             <div className="payrollRows">{selectedTeam.workers.map(worker => <div className={`payrollRow ${selectedWorkers[worker.id] === false ? 'excluded' : ''}`} key={worker.id}><input className="workerCheck" type="checkbox" checked={selectedWorkers[worker.id] !== false} onChange={event => setSelectedWorkers(current => ({ ...current, [worker.id]: event.target.checked }))} aria-label={`Include ${worker.name}`} /><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><label>Amount in USDC<input value={draftAmounts[worker.id] ?? worker.defaultAmountUsdc} onChange={event => updateAmount(worker.id, event.target.value)} inputMode="decimal" placeholder="0.00" disabled={selectedWorkers[worker.id] === false} /></label></div>)}</div>
             <div className="composerFooter"><div><span>{selectedItems.length} of {selectedTeam.workers.length} selected · Available balance</span><strong>{privateBalanceUsdc === null ? 'Check private balance' : `${privateBalanceUsdc} USDC`}</strong></div><button onClick={prepareDraft} disabled={Boolean(accountAction)}>{accountAction === 'payrun' ? 'Saving…' : 'Save and review pay run'}</button></div>
             {draftNotice && <div className="draftNotice"><AppIcon name="activity" /><span>{draftNotice}</span></div>}
             {activePayRun && <section className="batchReview">
-              <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>One private batch</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
+              <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>{activePayRun.settlementMode === 'private' ? 'Fully private batch' : 'Direct wallet payout'}</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
-              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Simulate ' + activePayRun.items.length + ' private transfers' : 'Waiting for treasury readiness'}</button> : null}
+              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for treasury readiness'}</button> : null}
               {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Review the recipients and total above. Ready X will show the final approval; cancelling it sends nothing.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for approval…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
@@ -1614,7 +1633,7 @@ function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, verifying
   const detail = run.finalityMessage || (run.status === 'draft' ? 'Saved · nothing sent' : run.status === 'prepared' ? 'Wallet simulation passed' : run.status === 'submitting' ? 'Waiting for Ready; do not retry' : run.status === 'submitted' ? 'Hash recorded · verify finality' : 'Payroll status')
   return <article className={`historyRow ${compact ? 'compact' : ''}`}>
     <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong>{run.transactionHash ? <a href={`https://starkscan.co/tx/${run.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(run.transactionHash)}</a> : <span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span>}</div></div>
-    {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>Private payroll</span></div>}
+    {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>{run.settlementMode === 'private' ? 'Fully private' : 'Direct wallet payout'}</span></div>}
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{run.status}</span><small>{detail}</small></div>
     {!compact && <div className="historyMeta"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && !safe && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}</div>}
   </article>

@@ -151,9 +151,11 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Status:** atomic action construction, immutable snapshots, durable submitting/unknown/submitted/finalized states, late wallet-hash recovery, duplicate-recipient/hash rejection, unresolved-submission locking, fresh-passkey retry release, and server receipt/pool-event verification are implemented. The canonical Mainnet pool address is verified against the sprint's Day 0 guide and transaction verifier; completion still requires one manually certified Mainnet batch paying at least two Ready-registered recipients.
 
+**No-setup payout correction 2026-08-31 — headless complete, wallet checkpoint pending:** new version 2 manifests default to `public-wallet`, which atomically withdraws private treasury USDC to ordinary Starknet recipients without registration while truthfully exposing recipient addresses and amounts onchain. `private` remains an explicit option for registered recipients; older immutable drafts retain that mode. KudiRoll and standalone KudiRail typecheck cleanly, all 73 app tests and 47 rail tests pass, production builds pass, and production dependency audits report zero vulnerabilities.
+
 1. Migrate `src/App.tsx:767-800` and `src/App.tsx:876-877` to the typed wallet service while preserving one immutable pay-run snapshot and the `PAY TEAM` confirmation.
 2. Validate every recipient address, normalize felts with numeric equality, and reject duplicates or zero/invalid amounts before asking the wallet to prepare.
-3. Submit all private transfer actions as one wallet request; never loop over recipients into separate approval flows.
+3. Submit all selected actions as one wallet request; use withdrawals for no-setup public recipients and private transfers only for registered recipients, never a client-side loop of separate approvals.
 4. Record submitted hash, explorer link, final receipt, failure/revert state, and a safe retry path without allowing duplicate payroll submission.
 5. Add server-side receipt verification before `src/server/account-store.ts` can mark a pay run final.
 6. For pool activity/history, never attribute a private transaction by transaction sender; use protocol events, and use the first indexed key of the pool `Deposit` event for deposit attribution.
@@ -206,7 +208,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 13. Phase 6 — Mainnet certification and anti-stale deployment
 
-**Status:** public-alpha deployment and the production UI release are live on Railway as of 2026-08-19; Mainnet certification remains pending. Railway deploys `main` through `railway.json`, `/api/health` reports the explicitly pinned Git commit, and signed-out desktop/mobile smoke tests pass at `https://kudiroll-production.up.railway.app`. No Mainnet evidence transaction has been submitted.
+**Status:** public-alpha deployment and the production UI release are live on Railway. Two verified Mainnet pool transactions are recorded: one intentional Paycrest-bound withdrawal and one separate treasury shield. The final atomic payroll transaction and public three-minute demo remain pending.
 
 1. Deploy only a CI-built artifact from the reviewed main commit; record artifact digest, commit SHA, environment, and deployment URL.
 2. Require post-deploy smoke tests and compare the live commit with GitHub before announcing a release.
