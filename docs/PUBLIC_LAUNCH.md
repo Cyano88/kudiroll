@@ -18,7 +18,7 @@ KudiRoll is a public alpha backed by the standalone KudiRail service and managed
 | Reproducible source and CI | Complete | Public repositories, reviewed history, green CI, clean builds, and generated artifacts excluded. |
 | License and contribution policy | Complete | MIT license, contribution guide, and private security-reporting process are published. |
 | Email-first access | Activation pending | Add `RESEND_API_KEY` and `KUDIROLL_EMAIL_FROM` to KudiRail, redeploy, then prove request, OTP verification, returning sign-in, first-time wallet linking, and passkey upgrade. |
-| Atomic wallet payroll | Complete | Mainnet transaction `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` paid two ordinary Starknet wallets atomically from the private treasury and was verified against the canonical STRK20 pool. Recipient addresses and amounts are public in this no-setup mode. |
+| Atomic wallet payroll | Complete | Mainnet transaction `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` paid two ordinary Starknet wallets atomically from the connected Ready account's shielded USDC balance and was verified against the canonical STRK20 pool. Recipient addresses and amounts are public in this no-setup mode. |
 | Fully private payroll | Manual gate | Certify one smallest-safe Mainnet batch to at least two STRK20-registered recipients and verify the pool event and final application status. |
 | Production data | Operational drill pending | Encrypted PostgreSQL schema 2 is live; complete managed backup/restore, reverse migration, retention, deletion, and encryption-key rotation drills. |
 | Production sessions | Recovery drill pending | Durable hashed sessions, single-use challenges, revocation, and per-process rate limits are live; certify two-device passkey recovery and keep one KudiRail replica until distributed rate limiting is added. |
@@ -84,5 +84,5 @@ Recovery/retry needed:
 ## Verified payout evidence
 
 - `0x55b6551094333c8d98bbc0560b9569afb11d3951c51c8a47fd8ec7307c068d9` — successful Mainnet private USDC payment to the Paycrest settlement address; verified against the configured STRK20 pool event.
-- `0x7aa7d78827c66c92db23e7864cc3cc01c23eb28955462ac2b458ce750faa76c` — successful separate Mainnet treasury shield into the canonical STRK20 pool.
+- `0x7aa7d78827c66c92db23e7864cc3cc01c23eb28955462ac2b458ce750faa76c` — successful separate Mainnet payroll-funding shield into the canonical STRK20 pool.
 - `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` — successful atomic Mainnet payroll withdrawal to two distinct Starknet recipients; both 0.01 USDC token legs and five canonical pool events were independently verified at block 14,138,965.

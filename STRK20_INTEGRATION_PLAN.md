@@ -19,7 +19,7 @@ Generated 2026-08-15 by the `strk20-privacy-integration` skill. This is the exec
 ## 2. Integration problem
 
 - KudiRoll already models a useful payroll product, but it sends raw Wallet API requests instead of using the supported starknet.js `WalletAccountV6` route.
-- The product now has the typed shield flow and treasury-readiness engine; manual Ready/Mainnet certification remains before it can claim a proven live shield.
+- The product has a typed shield flow and funding-readiness engine for the connected Ready account; it does not yet provide a separate organization-owned treasury, treasury roles, or policy controls.
 - Local JSON persistence and in-memory sessions are not production infrastructure.
 - Paycrest is a useful accountable exit, but its complete Starknet order, deposit, webhook, payout, refund, and reconciliation lifecycle is not certified.
 - Judges have public source, deployment, documentation, registry placement, and three verified Mainnet transactions; the public three-minute demo video remains the submission blocker.
@@ -132,7 +132,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Manual check:** compare connection and shield behavior with the wallet test dapp; confirm unsupported wallets can still sign in but cannot start private payroll.
 
-## 9. Phase 2 — shielded treasury readiness
+## 9. Phase 2 — shielded payroll-funding readiness
 
 **Status:** implementation and manual Mainnet checkpoint complete. KudiRoll persists only public shield hash, amount, and timestamp, exposes tracked shields independently in Transaction History, queries Starknet receipts server-side, distinguishes pending/reverted/unknown states, enforces the documented 10-block maturity window, restores state after refresh, and gates payroll simulation/submission. Mainnet shield `0x7aa7d78827c66c92db23e7864cc3cc01c23eb28955462ac2b458ce750faa76c` succeeded against the canonical pool and matured before payroll.
 
@@ -143,7 +143,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 5. Apply a disclosed 0.01 USDC KudiRoll product minimum and surface wallet simulation failures for insufficient public USDC or current fee allowance.
 6. Persist only public transaction references and app workflow state; never persist notes, proofs, viewing keys, or wallet-private balance data.
 
-**Exit:** the treasury panel truthfully reports whether the wallet, balance consent, fee allowance, finality, and maturity prerequisites are ready.
+**Exit:** the payroll-funds panel truthfully reports whether the connected wallet, balance consent, fee allowance, finality, and maturity prerequisites are ready.
 
 **Manual check:** shield a minimal Mainnet amount, capture the successful hash, verify finality, wait for maturity, and confirm payroll remains disabled until ready. This mainnet action requires explicit confirmation at execution time.
 
@@ -151,7 +151,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Status:** atomic action construction, immutable snapshots, durable submitting/unknown/submitted/finalized states, late wallet-hash recovery, duplicate-recipient/hash rejection, unresolved-submission locking, fresh-passkey retry release, and server receipt/pool-event verification are implemented. The no-setup Mainnet mode is certified by transaction `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a`: it succeeded at block 14,138,965 with five canonical pool events and two distinct 0.01 USDC recipient transfers. Fully private multi-recipient certification remains pending registered test recipients.
 
-**No-setup payout correction 2026-08-31 — headless complete, wallet checkpoint pending:** new version 2 manifests default to `public-wallet`, which atomically withdraws private treasury USDC to ordinary Starknet recipients without registration while truthfully exposing recipient addresses and amounts onchain. `private` remains an explicit option for registered recipients; older immutable drafts retain that mode. KudiRoll and standalone KudiRail typecheck cleanly, all 73 app tests and 47 rail tests pass, production builds pass, and production dependency audits report zero vulnerabilities.
+**No-setup payout correction 2026-08-31 — Mainnet verified:** new version 2 manifests default to `public-wallet`, which atomically withdraws the connected Ready account's shielded USDC to ordinary Starknet recipients without registration while truthfully exposing recipient addresses and amounts onchain. `private` remains an explicit option for registered recipients; older immutable drafts retain that mode. KudiRoll and standalone KudiRail typecheck cleanly, all 73 app tests and 47 rail tests pass, production builds pass, and production dependency audits report zero vulnerabilities.
 
 1. Migrate `src/App.tsx:767-800` and `src/App.tsx:876-877` to the typed wallet service while preserving one immutable pay-run snapshot and the `PAY TEAM` confirmation.
 2. Validate every recipient address, normalize felts with numeric equality, and reject duplicates or zero/invalid amounts before asking the wallet to prepare.
@@ -161,7 +161,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 6. For pool activity/history, never attribute a private transaction by transaction sender; use protocol events, and use the first indexed key of the pool `Deposit` event for deposit attribution.
 7. Expand tests for atomic preparation failure, immutable snapshots, idempotency, receipt verification, and timeout recovery.
 
-**Exit:** one finalized Mainnet transaction pays at least two ordinary Starknet recipients atomically from the private treasury and the saved pay run matches the confirmed receipt. Fully private recipient certification remains a separate checkpoint requiring registered test recipients.
+**Exit:** one finalized Mainnet transaction pays at least two ordinary Starknet recipients atomically from the connected wallet's shielded balance and the saved pay run matches the confirmed receipt. Fully private recipient certification remains a separate checkpoint requiring registered test recipients.
 
 **Manual check:** simulate first, compare every sanitized recipient and amount in Ready, approve once, verify finality in the explorer, and confirm refresh/reconnect restores the correct state. This mainnet action requires explicit confirmation at execution time.
 
@@ -208,7 +208,7 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 ## 13. Phase 6 — Mainnet certification and anti-stale deployment
 
-**Status:** the production candidate is live on Railway and all three required Mainnet pool transactions are verified and recorded in `strk20.json`: intentional Paycrest-bound withdrawal, separate treasury shield, and atomic two-recipient wallet payroll. The public three-minute demo remains pending.
+**Status:** the production candidate is live on Railway and all three required Mainnet pool transactions are verified and recorded in `strk20.json`: intentional Paycrest-bound withdrawal, separate payroll-funding shield, and atomic two-recipient wallet payroll. The public three-minute demo remains pending.
 
 1. Deploy only a CI-built artifact from the reviewed main commit; record artifact digest, commit SHA, environment, and deployment URL.
 2. Require post-deploy smoke tests and compare the live commit with GitHub before announcing a release.

@@ -1296,7 +1296,7 @@ function ProductShell({
         : privateMode
         ? 'This fully private batch could not be prepared. Every recipient must first enable private transfers in a compatible wallet. No payment was sent.'
         : /INSUFFICIENT|NOT ENOUGH|BALANCE.*LOW/i.test(message)
-          ? 'The private treasury cannot cover this payout and its current pool fees. Reduce the total or add funds. No payment was sent.'
+          ? 'The connected wallet private balance cannot cover this payout and its current pool fees. Reduce the total or add funds. No payment was sent.'
           : 'Ready could not prepare this wallet payout. No payment was sent; check Ready and try again.')
     } finally { setAccountAction('') }
   }
@@ -1307,7 +1307,7 @@ function ProductShell({
     const privateMode = activeExecutionManifest.settlementMode === 'private'
     if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
-    if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Treasury readiness must be verified before payroll can be submitted.')
+    if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Payroll funding readiness must be verified before payroll can be submitted.')
     setAccountAction('submit-batch')
     try {
       await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting' })
@@ -1435,7 +1435,7 @@ function ProductShell({
 
       {section === 'payroll' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); setDraftNotice('') }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
-        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Treasury ready' : 'Treasury not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the spendable private balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('providers')}>Manage funds</button></div>
+        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Payroll funds ready' : 'Payroll funds not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the connected wallet balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('providers')}>Manage funds</button></div>
         <section className="panel payrollComposer">
           {selectedTeam?.workers.length ? <>
             <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
@@ -1451,7 +1451,7 @@ function ProductShell({
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>{activePayRun.settlementMode === 'private' ? 'Fully private batch' : 'Direct wallet payout'}</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
-              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for treasury readiness'}</button> : null}
+              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for payroll funds'}</button> : null}
               {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Review the recipients and total above. Ready X will show the final approval; cancelling it sends nothing.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for approval…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
@@ -1459,8 +1459,8 @@ function ProductShell({
       </div>}
 
       {section === 'activity' && <div className="sectionStack">
-        <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked treasury shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
-        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Treasury shields</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked treasury shields" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
+        <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked payroll-funding shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
+        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Payroll funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
         {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
@@ -1566,7 +1566,7 @@ function TreasuryShieldRow({ shield, readiness }: { shield: TreasuryShieldRecord
   const blocked = status === 'reverted' || status === 'unknown'
   const detail = status === 'ready' ? 'Finalized and mature' : status === 'maturing' ? `${readiness?.blocksRemaining ?? 0} blocks until mature` : status === 'submitted' ? 'Awaiting finality' : status === 'reverted' ? 'Transaction reverted' : status === 'unknown' ? 'Verification delayed' : 'Saved transaction evidence'
   return <article className="historyRow">
-    <div className="historyIdentity"><span className="historyMark"><AppIcon name="wallet" /></span><div><strong>Public treasury shield</strong><a href={`https://starkscan.co/tx/${shield.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(shield.transactionHash)}</a></div></div>
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="wallet" /></span><div><strong>Public payroll-funding shield</strong><a href={`https://starkscan.co/tx/${shield.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(shield.transactionHash)}</a></div></div>
     <div className="historyAmount"><strong>{shield.amountUsdc} USDC</strong><span>Public pool deposit</span></div>
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{status}</span><small>{detail}</small></div>
     <div className="historyMeta"><strong>{new Date(shield.submittedAt).toLocaleDateString()}</strong><span>STRK20</span></div>

@@ -10,7 +10,7 @@ KudiRoll is a non-custodial Starknet application. It uses a connected wallet for
 | Authentication | Starknet typed-data challenge | The server verifies a five-minute, single-use challenge on Starknet Mainnet and issues a 12-hour HTTP-only session. |
 | Network safety | `SN_MAIN` gate | A wallet on any other chain is rejected before sign-in or payment actions. |
 | Payroll | Ready X STRK20 Wallet API `0.10.3` | A pay run becomes one ordered action list, is simulated, explicitly confirmed, and submitted once. No-setup withdrawals pay ordinary Starknet wallets with public recipients and amounts; fully private transfers require registered recipients. |
-| Treasury readiness | Starknet.js RPC receipt + latest block | KudiRoll tracks only the public shield hash and blocks a newly funded payroll until 10 blocks after acceptance. |
+| Funding readiness | Starknet.js RPC receipt + latest block | KudiRoll tracks only the connected wallet's public shield hash and blocks a newly funded payroll until 10 blocks after acceptance. This is not a separate organization treasury. |
 | Settlement pilot | Paycrest Starknet USDC to NGN | Kept separate from payroll and disabled by default for new live orders. |
 | Chain reads | Starknet.js RPC provider | Production must use a dedicated Mainnet RPC URL. |
 

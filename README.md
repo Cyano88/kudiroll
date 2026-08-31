@@ -1,6 +1,6 @@
 # KudiRoll
 
-Wallet-secured payroll from a private USDC treasury for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then choose no-setup Starknet wallet payouts or fully private transfers and approve the selected payments as one atomic STRK20 action list.
+Wallet-secured payroll using a connected Ready account's shielded USDC balance for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then choose no-setup Starknet wallet payouts or fully private transfers and approve the selected payments as one atomic STRK20 action list. KudiRoll does not yet provide a separate organization-owned treasury, roles, or treasury policy controls.
 
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
@@ -13,7 +13,7 @@ KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, 
 3. Save each worker's name, Starknet address, and default USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
 5. Save an immutable pay-run snapshot and review the combined total.
-6. Separately simulate and shield treasury USDC. The public approval and public pool deposit are shown as two explicit wallet prompts.
+6. Separately simulate and shield payroll USDC in the connected wallet. The public approval and public pool deposit are shown as two explicit wallet prompts.
 7. KudiRoll records only the public shield hash, checks finality from Starknet, and waits 10 blocks before enabling a newly funded payroll.
 8. Choose **Pay any Starknet wallet** for public recipient withdrawals with no recipient setup, or **Fully private** for registered STRK20 recipients.
 9. Simulate every selected action together, then approve the atomic action list once.
