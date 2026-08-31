@@ -83,3 +83,5 @@ Recovery/retry needed:
 ## Verified payout evidence
 
 - `0x55b6551094333c8d98bbc0560b9569afb11d3951c51c8a47fd8ec7307c068d9` — successful Mainnet private USDC payment to the Paycrest settlement address; verified against the configured STRK20 pool event.
+- `0x7aa7d78827c66c92db23e7864cc3cc01c23eb28955462ac2b458ce750faa76c` — successful separate Mainnet treasury shield into the canonical STRK20 pool.
+- `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` — successful atomic Mainnet payroll withdrawal to two distinct Starknet recipients; both 0.01 USDC token legs and five canonical pool events were independently verified at block 14,138,965.

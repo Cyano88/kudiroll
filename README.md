@@ -1,6 +1,6 @@
 # KudiRoll
 
-Wallet-secured private payroll for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then prepare a pay run and approve the selected private transfers as one atomic STRK20 action list.
+Wallet-secured payroll from a private USDC treasury for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then choose no-setup Starknet wallet payouts or fully private transfers and approve the selected payments as one atomic STRK20 action list.
 
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
@@ -10,16 +10,16 @@ KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, 
 
 1. Connect Ready X on Starknet Mainnet. A secure session or saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.
 2. Create separate teams for the groups the business pays.
-3. Save each worker's name, registered Starknet address, and default private-USDC amount.
+3. Save each worker's name, Starknet address, and default USDC amount.
 4. Select a team, include some or all workers, and adjust the amounts.
 5. Save an immutable pay-run snapshot and review the combined total.
 6. Separately simulate and shield treasury USDC. The public approval and public pool deposit are shown as two explicit wallet prompts.
 7. KudiRoll records only the public shield hash, checks finality from Starknet, and waits 10 blocks before enabling a newly funded payroll.
-8. Simulate every STRK20 private transfer together in the privacy wallet.
-9. Type `PAY TEAM` and approve the atomic action list once.
+8. Choose **Pay any Starknet wallet** for public recipient withdrawals with no recipient setup, or **Fully private** for registered STRK20 recipients.
+9. Simulate every selected action together, then approve the atomic action list once.
 10. Review saved pay-run and settlement-provider records in History.
 
-Every receiving address must first be registered with the compatible privacy wallet. A submitted pay run cannot be edited.
+Only fully private recipients must first be registered with a compatible privacy wallet. Direct wallet payouts require no recipient setup, but recipient addresses and amounts are public. A submitted pay run cannot be edited.
 
 ## Account persistence
 
@@ -47,7 +47,7 @@ Live Naira settlement remains a pilot until the Starknet route passes deposit de
 - `PAYCREST_API_KEY` remains server-only and must never use a `VITE_` prefix.
 - Paycrest live-order creation defaults to disabled and is amount capped.
 - Expired, unsimulated, and balance-exceeding Paycrest orders cannot reach wallet approval.
-- Private payroll requires successful batch simulation and the literal confirmation `PAY TEAM`.
+- Every payroll mode requires a successful wallet simulation before the approval button appears.
 - Server-side signature verification protects wallet-owned account records.
 
 ## Run locally
