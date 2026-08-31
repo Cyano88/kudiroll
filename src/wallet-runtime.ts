@@ -1,11 +1,15 @@
 import { createStore } from '@starknet-io/get-starknet-discovery'
 import { constants, WalletAccountV6, walletV6 } from 'starknet'
+import { isConnectableStarknetWallet } from './wallet-discovery'
 
 // Wallet discovery pulls in the Starknet Wallet Standard runtime. Keep it out of
 // the initial sign-in bundle so email and passkey users do not pay that cost.
 export const walletStore = createStore({ eip1193Adapters: [] })
 
 export async function connectStarknetWallet(choice: Parameters<typeof WalletAccountV6.connect>[1]) {
+  if (!isConnectableStarknetWallet(choice)) {
+    throw new Error('Ready X connection became stale. Unlock Ready X, choose Check again, and retry.')
+  }
   const account = await WalletAccountV6.connect({ nodeUrl: constants.NetworkName.SN_MAIN }, choice)
   const chainId = await walletV6.requestChainId(choice)
   let supportedApiVersions: string[] = []

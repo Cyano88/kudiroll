@@ -1,5 +1,12 @@
+import type { WalletWithStarknetFeatures } from '@starknet-io/get-starknet-wallet-standard/features'
+
 export type InjectedWalletStore = {
   _refreshInjectedWallets: () => void
+}
+
+export function isConnectableStarknetWallet(value: unknown): value is WalletWithStarknetFeatures {
+  const candidate = value as { features?: Record<string, { connect?: unknown }> } | null
+  return typeof candidate?.features?.['standard:connect']?.connect === 'function'
 }
 
 type DiscoveryHost = {

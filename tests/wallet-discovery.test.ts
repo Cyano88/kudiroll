@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { startInjectedWalletDiscovery } from '../src/wallet-discovery'
+import { isConnectableStarknetWallet, startInjectedWalletDiscovery } from '../src/wallet-discovery'
+
+test('rejects stale wallet entries without a Wallet Standard connect feature', () => {
+  assert.equal(isConnectableStarknetWallet({ name: 'Ready X' }), false)
+  assert.equal(isConnectableStarknetWallet({ name: 'Ready X', features: {} }), false)
+  assert.equal(isConnectableStarknetWallet({ name: 'Ready X', features: { 'standard:connect': { connect() {} } } }), true)
+})
 
 test('rescans delayed injected wallets and refreshes when the browser regains focus', () => {
   let refreshes = 0

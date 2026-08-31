@@ -35,7 +35,7 @@ import {
   withTimeout,
 } from './phase0'
 import type { TreasuryReadiness, TreasuryShieldRecord } from './treasury-readiness'
-import { startInjectedWalletDiscovery } from './wallet-discovery'
+import { isConnectableStarknetWallet, startInjectedWalletDiscovery } from './wallet-discovery'
 import { createRailPayRun, resolveUnknownRailPayRun, updateRailPayRun, verifyRailPayRun } from './rail/client'
 import type { PayRunExecutionManifest } from './rail/contracts'
 import { kudiRailUrl } from './rail/api-origin'
@@ -372,10 +372,10 @@ export function App() {
     setBusy('wallet')
     try {
       const { connectStarknetWallet, walletStore } = await import('./wallet-runtime')
+      walletStore._refreshInjectedWallets()
       const discoveredWallets = walletStore.getWallets()
-      const choice = selectedWallet
-        ?? discoveredWallets.find(candidate => /ready/i.test(candidate.name))
-        ?? walletChoices.find(candidate => /ready/i.test(candidate.name))
+      const choice = [selectedWallet, ...discoveredWallets, ...walletChoices]
+        .find(candidate => candidate && /ready/i.test(candidate.name) && isConnectableStarknetWallet(candidate))
       if (!choice) throw new Error('Ready X was not detected. Install or unlock Ready X, then try again.')
       const connected = await withTimeout(
         connectStarknetWallet(choice),
@@ -989,7 +989,7 @@ function SignInLanding({
         title: 'Privacy',
         body: 'KudiRoll saves team names, worker names, Starknet addresses, default amounts, and pay-run records to your wallet-secured account. KudiRoll never asks for or stores wallet private keys, viewing keys, proofs, OTPs, recovery phrases, or bank details.',
       }
-  const readyWallets = wallets.filter(candidate => /ready/i.test(candidate.name))
+  const readyWallets = wallets.filter(candidate => /ready/i.test(candidate.name) && isConnectableStarknetWallet(candidate))
 
   return <div className="signInGate">
     <div className="signInBackdrop" aria-hidden="true" />
