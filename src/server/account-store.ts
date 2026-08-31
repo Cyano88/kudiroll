@@ -65,6 +65,13 @@ export type BusinessProfile = {
   updatedAt: string
 }
 
+export type PayrollPolicy = {
+  reserveUsdc: string
+  maxPayRunUsdc: string
+  payoutsPaused: boolean
+  updatedAt: string
+}
+
 export type SavedPasskey = {
   credentialId: string
   publicKey: string
@@ -90,7 +97,7 @@ export type EncryptedWalletBackup = {
   updatedAt: string
 }
 
-export type AccountRecord = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
+export type AccountRecord = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
 export type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
@@ -118,6 +125,12 @@ function amount(value: unknown) {
   return text
 }
 
+function nonNegativeAmount(value: unknown, label: string) {
+  const text = cleanText(value, 32)
+  if (!/^\d+(?:\.\d{1,6})?$/.test(text)) throw Object.assign(new Error(`${label} must be zero or a positive USDC amount with at most 6 decimals.`), { status: 400 })
+  return text.replace(/^0+(?=\d)/, '') || '0'
+}
+
 function amountUnits(value: string) {
   const [whole, fraction = ''] = value.split('.')
   return BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'))
@@ -125,6 +138,10 @@ function amountUnits(value: string) {
 
 function emptyProfile(): BusinessProfile {
   return { ownerName: '', businessName: '', jobTitle: '', email: '', phone: '', emailVerifiedAt: '', updatedAt: '' }
+}
+
+function emptyPayrollPolicy(): PayrollPolicy {
+  return { reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
 }
 
 async function readStore(): Promise<StoreFile> {
@@ -161,9 +178,10 @@ async function mutate<T>(operation: (store: StoreFile) => T | Promise<T>) {
 function accountIn(store: StoreFile, address: string) {
   const key = walletAddress(address)
   const now = new Date().toISOString()
-  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), teams: [], payRuns: [], treasuryShields: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
+  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), payrollPolicy: emptyPayrollPolicy(), teams: [], payRuns: [], treasuryShields: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
   account.profile ??= emptyProfile()
   account.profile.emailVerifiedAt ??= ''
+  account.payrollPolicy ??= emptyPayrollPolicy()
   account.treasuryShields ??= []
   account.passkeys ??= []
   for (const passkey of account.passkeys) {
@@ -201,6 +219,7 @@ export function publicAccount(account: AccountRecord) {
   return {
     walletAddress: account.walletAddress,
     profile: account.profile,
+    payrollPolicy: account.payrollPolicy,
     teams: account.teams,
     payRuns: account.payRuns.map(publicPayRun),
     treasuryShields: account.treasuryShields,
@@ -533,11 +552,29 @@ export async function createPayRun(address: string, input: any, idempotencyKey =
       return { id: randomUUID(), workerId: worker.id, workerName: worker.name, walletAddress: worker.walletAddress, amountUsdc: amount(item?.amountUsdc), status: 'draft' }
     })
     const total = items.reduce((sum: bigint, item: SavedPayRunItem) => sum + amountUnits(item.amountUsdc), 0n)
+    if (account.payrollPolicy.payoutsPaused) throw Object.assign(new Error('Payroll payouts are paused by the organization policy.'), { status: 409 })
+    const maxPayRun = amountUnits(account.payrollPolicy.maxPayRunUsdc)
+    if (maxPayRun > 0n && total > maxPayRun) throw Object.assign(new Error(`This pay run exceeds the organization limit of ${account.payrollPolicy.maxPayRunUsdc} USDC.`), { status: 409 })
     const now = new Date().toISOString()
     const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, settlementMode, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', clientReference, idempotencyKeyHash, requestHash, createdAt: now, updatedAt: now }
     account.payRuns.unshift(payRun)
     account.updatedAt = now
     return payRun
+  })
+}
+
+export async function updatePayrollPolicy(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    const now = new Date().toISOString()
+    account.payrollPolicy = {
+      reserveUsdc: nonNegativeAmount(input?.reserveUsdc, 'Protected reserve'),
+      maxPayRunUsdc: nonNegativeAmount(input?.maxPayRunUsdc, 'Maximum pay run'),
+      payoutsPaused: input?.payoutsPaused === true,
+      updatedAt: now,
+    }
+    account.updatedAt = now
+    return account.payrollPolicy
   })
 }
 
@@ -560,6 +597,11 @@ export async function updatePayRun(address: string, payRunId: string, input: any
     }
     if (!transitions[payRun.status].includes(status as SavedPayRun['status'])) {
       throw Object.assign(new Error(`A ${payRun.status} pay run cannot move directly to ${status}.`), { status: 409 })
+    }
+    if (status === 'prepared' || status === 'submitting') {
+      if (account.payrollPolicy.payoutsPaused) throw Object.assign(new Error('Payroll payouts are paused by the organization policy.'), { status: 409 })
+      const maxPayRun = amountUnits(account.payrollPolicy.maxPayRunUsdc)
+      if (maxPayRun > 0n && amountUnits(payRun.totalUsdc) > maxPayRun) throw Object.assign(new Error(`This pay run exceeds the organization limit of ${account.payrollPolicy.maxPayRunUsdc} USDC.`), { status: 409 })
     }
     const transactionHash = cleanText(input?.transactionHash, 80).toLowerCase()
     if (status === 'submitted' && !/^0x[0-9a-fA-F]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('A transaction hash is required for a submitted pay run.'), { status: 400 })

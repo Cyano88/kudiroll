@@ -82,7 +82,8 @@ type SavedTeam = { id: string; name: string; description: string; workers: Saved
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; settlementMode?: 'public-wallet' | 'private'; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type PayrollPolicy = { reserveUsdc: string; maxPayRunUsdc: string; payoutsPaused: boolean; updatedAt: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -1120,6 +1121,8 @@ function ProductShell({
   const [batchMessage, setBatchMessage] = useState('')
   const [profileForm, setProfileForm] = useState({ ownerName: '', businessName: '', jobTitle: '', email: '', phone: '' })
   const [profileNotice, setProfileNotice] = useState('')
+  const [policyForm, setPolicyForm] = useState({ reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false })
+  const [policyNotice, setPolicyNotice] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
 
@@ -1139,6 +1142,10 @@ function ProductShell({
   const supportsPrivatePayroll = supportsStrk20Api(walletVersions)
   const hasExistingSpendableBalance = treasuryReadiness?.status === 'none' && privateBalanceUsdc !== null && privateBalanceUsdc > 0
   const treasuryReady = treasuryReadiness?.status === 'ready' || hasExistingSpendableBalance
+  const payrollPolicy = accountData?.payrollPolicy ?? { reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
+  const protectedReserve = Number(payrollPolicy.reserveUsdc || 0)
+  const maximumPayRun = Number(payrollPolicy.maxPayRunUsdc || 0)
+  const availableAfterReserve = privateBalanceUsdc === null ? null : Math.max(0, privateBalanceUsdc - protectedReserve)
   const pageTitle: Record<ProductSection, string> = {
     overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
     providers: 'Payout methods', settings: 'Business profile', lab: 'Bank payout',
@@ -1160,6 +1167,11 @@ function ProductShell({
   }, [accountData?.profile])
 
   useEffect(() => {
+    const policy = accountData?.payrollPolicy
+    setPolicyForm({ reserveUsdc: policy?.reserveUsdc ?? '0', maxPayRunUsdc: policy?.maxPayRunUsdc ?? '0', payoutsPaused: policy?.payoutsPaused === true })
+  }, [accountData?.payrollPolicy])
+
+  useEffect(() => {
     if (!mobileMoreOpen) return
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileMoreOpen(false) }
     window.addEventListener('keydown', closeOnEscape)
@@ -1178,6 +1190,17 @@ function ProductShell({
       await onMutateAccount('/api/account/profile', { method: 'PATCH', body: JSON.stringify(profileForm) })
       setProfileNotice('Business profile saved to this wallet account.')
     } catch (error) { setProfileNotice(readableError(error)) }
+    finally { setAccountAction('') }
+  }
+
+  async function savePayrollPolicy() {
+    setPolicyNotice('')
+    if (!/^\d+(?:\.\d{1,6})?$/.test(policyForm.reserveUsdc) || !/^\d+(?:\.\d{1,6})?$/.test(policyForm.maxPayRunUsdc)) return setPolicyNotice('Use zero or a positive USDC amount with at most 6 decimals.')
+    setAccountAction('payroll-policy')
+    try {
+      await onMutateAccount('/api/account/payroll-policy', { method: 'PUT', body: JSON.stringify(policyForm) })
+      setPolicyNotice('Payroll controls saved and applied to new pay runs.')
+    } catch (error) { setPolicyNotice(readableError(error)) }
     finally { setAccountAction('') }
   }
 
@@ -1259,8 +1282,10 @@ function ProductShell({
     if (!selectedTeam) return setDraftNotice('Select a saved team first.')
     if (accountData?.payRuns.some(run => run.status === 'submitting' || run.status === 'unknown')) return setDraftNotice('Resolve the existing unknown payroll submission in History before creating another pay run.')
     if (!selectedItems.length || selectedItems.some(worker => !Number(draftAmounts[worker.id] || worker.defaultAmountUsdc))) return setDraftNotice('Select workers and enter an amount greater than zero for each person.')
+    if (payrollPolicy.payoutsPaused) return setDraftNotice('Payroll payouts are paused in Payroll controls.')
+    if (maximumPayRun > 0 && totalDraft > maximumPayRun) return setDraftNotice(`This total exceeds your ${payrollPolicy.maxPayRunUsdc} USDC pay-run limit.`)
     if (privateBalanceUsdc === null) return setDraftNotice('Check your available balance before previewing this pay run.')
-    if (totalDraft > privateBalanceUsdc) return setDraftNotice('The total is higher than your available private USDC balance.')
+    if (availableAfterReserve !== null && totalDraft > availableAfterReserve) return setDraftNotice(`This total would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('payrun')
     try {
       const result = await createRailPayRun(onMutateAccount, { teamId: selectedTeam.id, settlementMode, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
@@ -1280,6 +1305,9 @@ function ProductShell({
     if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to simulate this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Verify a mature shield or check an existing spendable private balance before preparing payroll.')
+    if (payrollPolicy.payoutsPaused) return setBatchMessage('Payroll payouts are paused in Payroll controls.')
+    if (maximumPayRun > 0 && Number(activePayRun.totalUsdc) > maximumPayRun) return setBatchMessage(`This pay run exceeds the ${payrollPolicy.maxPayRunUsdc} USDC organization limit.`)
+    if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('simulate-batch')
     try {
       const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
@@ -1308,6 +1336,9 @@ function ProductShell({
     if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
     if (!supportsPrivatePayroll) return setBatchMessage('Reconnect with Ready X to submit this private payroll batch.')
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Payroll funding readiness must be verified before payroll can be submitted.')
+    if (payrollPolicy.payoutsPaused) return setBatchMessage('Payroll payouts are paused in Payroll controls.')
+    if (maximumPayRun > 0 && Number(activePayRun.totalUsdc) > maximumPayRun) return setBatchMessage(`This pay run exceeds the ${payrollPolicy.maxPayRunUsdc} USDC organization limit.`)
+    if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('submit-batch')
     try {
       await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting' })
@@ -1445,7 +1476,7 @@ function ProductShell({
             </div>
             <div className="composerHead"><div><span>{selectedTeam.name}</span><strong>{totalDraft.toFixed(6)} USDC</strong></div><button className="plainButton" onClick={() => setSelectedWorkers(Object.fromEntries(selectedTeam.workers.map(worker => [worker.id, selectedItems.length !== selectedTeam.workers.length])))}>{selectedItems.length === selectedTeam.workers.length ? 'Clear selection' : 'Select everyone'}</button></div>
             <div className="payrollRows">{selectedTeam.workers.map(worker => <div className={`payrollRow ${selectedWorkers[worker.id] === false ? 'excluded' : ''}`} key={worker.id}><input className="workerCheck" type="checkbox" checked={selectedWorkers[worker.id] !== false} onChange={event => setSelectedWorkers(current => ({ ...current, [worker.id]: event.target.checked }))} aria-label={`Include ${worker.name}`} /><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><label>Amount in USDC<input value={draftAmounts[worker.id] ?? worker.defaultAmountUsdc} onChange={event => updateAmount(worker.id, event.target.value)} inputMode="decimal" placeholder="0.00" disabled={selectedWorkers[worker.id] === false} /></label></div>)}</div>
-            <div className="composerFooter"><div><span>{selectedItems.length} of {selectedTeam.workers.length} selected · Available balance</span><strong>{privateBalanceUsdc === null ? 'Check private balance' : `${privateBalanceUsdc} USDC`}</strong></div><button onClick={prepareDraft} disabled={Boolean(accountAction)}>{accountAction === 'payrun' ? 'Saving…' : 'Save and review pay run'}</button></div>
+            <div className="composerFooter"><div><span>{selectedItems.length} of {selectedTeam.workers.length} selected · Available after reserve</span><strong>{availableAfterReserve === null ? 'Check private balance' : `${availableAfterReserve.toFixed(6).replace(/\.?0+$/, '') || '0'} USDC`}</strong></div><button onClick={prepareDraft} disabled={Boolean(accountAction)}>{accountAction === 'payrun' ? 'Saving…' : 'Save and review pay run'}</button></div>
             {draftNotice && <div className="draftNotice"><AppIcon name="activity" /><span>{draftNotice}</span></div>}
             {activePayRun && <section className="batchReview">
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>{activePayRun.settlementMode === 'private' ? 'Fully private batch' : 'Direct wallet payout'}</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
@@ -1469,6 +1500,7 @@ function ProductShell({
       {section === 'providers' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
         {shieldPanel}
+        <section className="panel"><div className="panelTitle"><div><span>Organization policy</span><h3>Payroll controls</h3></div><span className={'statePill ' + (payrollPolicy.payoutsPaused ? 'blocked' : 'safe')}>{payrollPolicy.payoutsPaused ? 'Payouts paused' : 'Active'}</span></div><p className="teamDescription">Protect a minimum wallet balance, cap each pay run, or pause new payroll. The maximum and pause are enforced by KudiRail; the reserve uses the private balance you explicitly share through Ready. These controls do not create separate custody or prevent transactions signed outside KudiRoll.</p><div className="workerForm"><label>Protected reserve<input value={policyForm.reserveUsdc} onChange={event => { setPolicyForm(current => ({ ...current, reserveUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0" /></label><label>Maximum pay run<input value={policyForm.maxPayRunUsdc} onChange={event => { setPolicyForm(current => ({ ...current, maxPayRunUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0 = no limit" /></label><label className="policyToggle"><input type="checkbox" checked={policyForm.payoutsPaused} onChange={event => { setPolicyForm(current => ({ ...current, payoutsPaused: event.target.checked })); setPolicyNotice('') }} />Pause new payouts</label><button onClick={savePayrollPolicy} disabled={Boolean(accountAction)}>{accountAction === 'payroll-policy' ? 'Saving…' : 'Save controls'}</button></div>{policyNotice && <div className="draftNotice"><AppIcon name="building" /><span>{policyNotice}</span></div>}</section>
         <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
         <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Live' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Pay a verified Nigerian bank account from private USDC." action="Open bank payout" onAction={() => onSection('lab')} /></div>
       </div>}

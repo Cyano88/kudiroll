@@ -268,6 +268,8 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .teamDescription { margin: 7px 0 17px; }
 .workerForm { display: grid; grid-template-columns: .65fr 1.35fr 150px auto; align-items: end; gap: 10px; border-top: 1px solid #e6e9e3; border-bottom: 1px solid #e6e9e3; padding: 16px 0; }
 .workerForm button { min-height: 43px; }
+.policyToggle { display: flex; align-items: center; gap: 9px; min-height: 43px; border: 1px solid #d6d4ca; border-radius: 8px; padding: 0 12px; }
+.policyToggle input { width: auto; margin: 0; padding: 0; accent-color: #405b39; }
 .defaultAmount { color: #59634f; font-size: .66rem; font-weight: 750; white-space: nowrap; }
 .teamSelect { width: min(240px, 100%); margin: 0; }
 .formFooter { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 15px; color: #909188; font-size: .68rem; }
@@ -623,6 +625,7 @@ html[data-theme='dark'] .teamSelector button { color: #929d94; border-color: #30
 html[data-theme='dark'] .teamSelector button.active { color: #dff5e7; border-color: #3c6249; background: #19271e; box-shadow: inset 3px 0 #32c98b; }
 html[data-theme='dark'] .workerForm,
 html[data-theme='dark'] .composerFooter { border-color: #29312b; }
+html[data-theme='dark'] .policyToggle { border-color: #323b34; }
 html[data-theme='dark'] .defaultAmount { color: #a4c2ac; }
 html[data-theme='dark'] .rowAction { color: #d58e7b; }
 html[data-theme='dark'] .payrollComposer { background: transparent; box-shadow: none; }

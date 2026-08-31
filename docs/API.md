@@ -10,6 +10,7 @@ KudiRoll Rail is the non-custodial payroll orchestration boundary behind the Kud
 - First-party cross-origin transport: implemented behind exact `KUDIRAIL_ALLOWED_ORIGINS`; set KudiRoll App's `VITE_KUDIRAIL_API_URL` to the HTTPS API origin
 - External API keys, OAuth clients, webhooks and third-party developer access: not released
 - Local settlement: NGN remains a separately gated Paycrest guided test and is not part of the private batch manifest
+- Payroll controls: organization payout pause and maximum pay-run size are enforced by KudiRail; the protected reserve is evaluated by KudiRoll against the consented Ready balance
 
 `GET /api/v1` returns the live capability declaration. Do not infer unavailable corridors or external developer access from this document.
 

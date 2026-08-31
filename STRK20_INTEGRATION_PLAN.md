@@ -255,6 +255,16 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Manual check:** create one draft from KudiRoll App, confirm `/api/v1` returns client custody, confirm the manifest contains no worker name or secret, simulate without submission, refresh the account and verify exactly one pay-run record exists.
 
+## 14B. Phase 7B — organization payroll controls ✅ headless complete 2026-08-31
+
+**Status:** KudiRail now persists an encrypted per-account payroll policy with a protected USDC reserve, maximum pay-run size, payout pause, and update time. New and existing drafts cannot be prepared while paused or above the maximum; KudiRoll also blocks drafts, simulation, and submission when the consented Ready balance would fall below the protected reserve. The policy is operational control around a connected wallet, not a separate organization treasury, multisig, custody account, or restriction on transactions signed outside KudiRoll.
+
+**Files:** `src/server/account-store.ts`, `src/server/account-router.ts`, `src/server/rail-router.ts`, `src/App.tsx`, `src/styles.css`, mirrored standalone KudiRail modules, public KudiRail docs, and focused account-store tests.
+
+**Drift:** the 2026-08-31 freshness check found Wallet Standard patch movement, removal of the cited sub-account anonymizer path, and a new shadow-account anonymizer package. Wallet-route organization sub-accounts remain outside this slice; no dependency was changed and no unreviewed SDK keys or Cairo contracts were introduced.
+
+**Manual check:** save a reserve and maximum in Payout methods, refresh and confirm persistence, attempt an over-limit draft, pause payouts and verify both a new draft and an existing draft are blocked, then unpause. No wallet transaction is required. https://strk20-by-example.org/starknet-wallet-api/overview
+
 ## 15. Testing strategy
 
 - Headless gate for every phase: clean install, typecheck, all tests, production build, dependency audit, and focused new regression tests.

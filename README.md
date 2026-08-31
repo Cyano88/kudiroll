@@ -1,6 +1,6 @@
 # KudiRoll
 
-Wallet-secured payroll using a connected Ready account's shielded USDC balance for Nigerian businesses. Businesses create reusable teams, save workers and default USDC amounts, then choose no-setup Starknet wallet payouts or fully private transfers and approve the selected payments as one atomic STRK20 action list. KudiRoll does not yet provide a separate organization-owned treasury, roles, or treasury policy controls.
+Wallet-secured payroll using a connected Ready account's shielded USDC balance for Nigerian businesses. Businesses create reusable teams, protect a reserve, cap or pause payroll, then choose no-setup Starknet wallet payouts or fully private transfers and approve the selected payments as one atomic STRK20 action list. KudiRoll's policy controls do not create a separate organization-owned account, custody funds, or prevent transactions signed outside KudiRoll.
 
 KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, a non-custodial private-payroll API, and **KudiRoll App**, its first-party reference client. Production first-party traffic runs through KudiRail; the versioned boundary is documented in [docs/API.md](docs/API.md), while external developer credentials are not released yet.
 
@@ -15,9 +15,10 @@ KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, 
 5. Save an immutable pay-run snapshot and review the combined total.
 6. Separately simulate and shield payroll USDC in the connected wallet. The public approval and public pool deposit are shown as two explicit wallet prompts.
 7. KudiRoll records only the public shield hash, checks finality from Starknet, and waits 10 blocks before enabling a newly funded payroll.
-8. Choose **Pay any Starknet wallet** for public recipient withdrawals with no recipient setup, or **Fully private** for registered STRK20 recipients.
-9. Simulate every selected action together, then approve the atomic action list once.
-10. Review saved pay-run and settlement-provider records in History.
+8. Set optional payroll controls: a protected reserve, maximum pay-run size, or payout pause. KudiRail enforces the maximum and pause; the reserve is checked against the balance deliberately shared through Ready.
+9. Choose **Pay any Starknet wallet** for public recipient withdrawals with no recipient setup, or **Fully private** for registered STRK20 recipients.
+10. Simulate every selected action together, then approve the atomic action list once.
+11. Review saved pay-run and settlement-provider records in History.
 
 Only fully private recipients must first be registered with a compatible privacy wallet. Direct wallet payouts require no recipient setup, but recipient addresses and amounts are public. A submitted pay run cannot be edited.
 
