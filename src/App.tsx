@@ -82,8 +82,9 @@ type SavedTeam = { id: string; name: string; description: string; workers: Saved
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
 type SavedPayRun = { id: string; teamId: string; teamName: string; settlementMode?: 'public-wallet' | 'private'; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
-type PayrollPolicy = { reserveUsdc: string; maxPayRunUsdc: string; payoutsPaused: boolean; updatedAt: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type PayrollPolicy = { version: number; reserveUsdc: string; maxPayRunUsdc: string; payoutsPaused: boolean; updatedAt: string }
+type TreasuryAuditEvent = { id: string; type: string; subjectId: string; summary: string; createdAt: string; previousHash: string; eventHash: string }
+type AccountData = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
 type Theme = 'light' | 'dark'
 
@@ -620,11 +621,11 @@ export function App() {
   }
 
   async function checkBalance() {
-    if (!wallet) return
+    if (!wallet) return null
     if (!supportsStrk20Api(walletVersions)) {
       setPrivateBalanceUsdc(null)
       setPrivateBalance('This wallet does not advertise the Ready STRK20 private-payroll API.')
-      return
+      return null
     }
     setBusy('balance')
     try {
@@ -633,9 +634,11 @@ export function App() {
       const value = Number(units) / 1_000_000
       setPrivateBalanceUsdc(value)
       setPrivateBalance(`${value} USDC`)
+      return value
     } catch (error) {
       setPrivateBalanceUsdc(null)
       setPrivateBalance(privateBalanceError(error))
+      return null
     } finally {
       setBusy('')
     }
@@ -1093,7 +1096,7 @@ function ProductShell({
   onReconcilePayout: (orderId: string) => void
   onExportPayoutEvidence: (orderId: string) => void
   onConnect: () => void
-  onReadBalance: () => void
+  onReadBalance: () => Promise<number | null>
   onDisconnect: () => void
   onDeleteAccount: (confirmation: string) => Promise<any>
   onRegisterPasskey: () => void
@@ -1142,7 +1145,7 @@ function ProductShell({
   const supportsPrivatePayroll = supportsStrk20Api(walletVersions)
   const hasExistingSpendableBalance = treasuryReadiness?.status === 'none' && privateBalanceUsdc !== null && privateBalanceUsdc > 0
   const treasuryReady = treasuryReadiness?.status === 'ready' || hasExistingSpendableBalance
-  const payrollPolicy = accountData?.payrollPolicy ?? { reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
+  const payrollPolicy = accountData?.payrollPolicy ?? { version: 0, reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
   const protectedReserve = Number(payrollPolicy.reserveUsdc || 0)
   const maximumPayRun = Number(payrollPolicy.maxPayRunUsdc || 0)
   const availableAfterReserve = privateBalanceUsdc === null ? null : Math.max(0, privateBalanceUsdc - protectedReserve)
@@ -1312,8 +1315,10 @@ function ProductShell({
     try {
       const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
       await withTimeout(privateMode ? simulatePrivatePayroll(wallet, items) : simulatePublicPayroll(wallet, items), 90_000)
-      await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'prepared' })
-      setActivePayRun(current => current ? { ...current, status: 'prepared' } : current)
+      const prepared = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'prepared' })
+      if (!prepared.executionManifest || prepared.executionManifest.snapshotHash !== activeExecutionManifest.snapshotHash) throw new Error('KudiRoll Rail changed the saved payout intent. Nothing was submitted.')
+      setActivePayRun(prepared.payRun)
+      setActiveExecutionManifest(prepared.executionManifest)
       setBatchState('passed')
       setBatchMessage(privateMode ? `Ready accepted all ${activePayRun.items.length} private transfers as one atomic batch.` : `Ready accepted all ${activePayRun.items.length} wallet payouts as one atomic transaction.`)
     } catch (error) {
@@ -1341,9 +1346,16 @@ function ProductShell({
     if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('submit-batch')
     try {
-      await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting' })
-      setActivePayRun(current => current ? { ...current, status: 'submitting', submissionAttemptedAt: new Date().toISOString() } : current)
-      const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
+      const freshBalance = await onReadBalance()
+      if (freshBalance === null) throw new Error('Could not confirm the current private balance. Check the balance and approve again.')
+      const reviewedReserve = Number(activeExecutionManifest.policy.reserveUsdc)
+      if (Number(activePayRun.totalUsdc) > Math.max(0, freshBalance - reviewedReserve)) throw new Error(`This pay run would use the protected ${activeExecutionManifest.policy.reserveUsdc} USDC reserve.`)
+      const authorization = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting', expectedPolicyVersion: activeExecutionManifest.policy.version })
+      const authorizedManifest = authorization.executionManifest as PayRunExecutionManifest | undefined
+      if (!authorizedManifest || authorizedManifest.snapshotHash !== activeExecutionManifest.snapshotHash || authorizedManifest.authorizationHash !== activeExecutionManifest.authorizationHash) throw new Error('Payroll controls changed after this batch was checked. Check the batch again before approval.')
+      setActivePayRun(authorization.payRun)
+      setActiveExecutionManifest(authorizedManifest)
+      const items = authorizedManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
       const submission = (privateMode ? submitPrivatePayroll(wallet, items) : submitPublicPayroll(wallet, items)).then(async result => {
         const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
         const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
@@ -1375,6 +1387,9 @@ function ProductShell({
         setBatchMessage(recoveredHash
           ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
           : 'Ready has not returned a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
+      } else if (/controls changed|current private balance|protected .* reserve/i.test(message)) {
+        setBatchState('failed')
+        setBatchMessage(`${message} No wallet transaction was opened.`)
       } else {
         await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
         setActivePayRun(current => current ? { ...current, status: 'failed' } : current)
@@ -1483,7 +1498,7 @@ function ProductShell({
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
               {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for payroll funds'}</button> : null}
-              {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Review the recipients and total above. Ready X will show the final approval; cancelling it sends nothing.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Waiting for approval…' : 'Approve payroll in Ready X'}</button></div>}
+              {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Controls v{activeExecutionManifest?.policy.version ?? payrollPolicy.version} are locked to this review. KudiRoll checks the private balance again before Ready X opens.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Rechecking controls…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
         </section>
@@ -1493,6 +1508,7 @@ function ProductShell({
         <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked payroll-funding shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Payroll funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
         {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
+        {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>Treasury audit trail</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
       </div>}
@@ -1602,6 +1618,16 @@ function TreasuryShieldRow({ shield, readiness }: { shield: TreasuryShieldRecord
     <div className="historyAmount"><strong>{shield.amountUsdc} USDC</strong><span>Public pool deposit</span></div>
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{status}</span><small>{detail}</small></div>
     <div className="historyMeta"><strong>{new Date(shield.submittedAt).toLocaleDateString()}</strong><span>STRK20</span></div>
+  </article>
+}
+
+function TreasuryAuditRow({ event }: { event: TreasuryAuditEvent }) {
+  const label = event.type.split('.').map(value => value.charAt(0).toUpperCase() + value.slice(1)).join(' ')
+  return <article className="historyRow">
+    <div className="historyIdentity"><span className="historyMark"><AppIcon name="activity" /></span><div><strong>{label}</strong><span>{event.summary}</span></div></div>
+    <div className="historyAmount"><strong>{shortAddress(event.subjectId)}</strong><span>Subject</span></div>
+    <div className="historyStatus"><span className="statePill safe">Recorded</span><small>Previous {event.previousHash ? shortAddress(event.previousHash) : 'chain start'}</small></div>
+    <div className="historyMeta"><strong>{new Date(event.createdAt).toLocaleDateString()}</strong><span>{shortAddress(event.eventHash)}</span></div>
   </article>
 }
 

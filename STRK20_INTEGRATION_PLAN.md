@@ -261,6 +261,8 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 
 **Files:** `src/server/account-store.ts`, `src/server/account-router.ts`, `src/server/rail-router.ts`, `src/App.tsx`, `src/styles.css`, mirrored standalone KudiRail modules, public KudiRail docs, and focused account-store tests.
 
+**Production hardening complete locally 2026-08-31:** payroll policies now carry monotonic versions; prepared manifests bind the reviewed policy and authorization hash; KudiRail rejects submission when controls changed; KudiRoll refreshes the Ready-mediated private balance before opening approval; and shield, policy, payroll submission, transaction, recovery, and finality evidence is appended to an encrypted hash chain that is verified at runtime and displayed in History. KudiRoll passes 75 tests, KudiRail passes 49 tests, both typecheck/build gates pass, production dependency audits report zero vulnerabilities, and desktop plus 390px browser snapshots show the verified audit record without layout regressions.
+
 **Drift:** the 2026-08-31 freshness check found Wallet Standard patch movement, removal of the cited sub-account anonymizer path, and a new shadow-account anonymizer package. Wallet-route organization sub-accounts remain outside this slice; no dependency was changed and no unreviewed SDK keys or Cairo contracts were introduced.
 
 **Manual check:** save a reserve and maximum in Payout methods, refresh and confirm persistence, attempt an over-limit draft, pause payouts and verify both a new draft and an existing draft are blocked, then unpause. No wallet transaction is required. https://strk20-by-example.org/starknet-wallet-api/overview

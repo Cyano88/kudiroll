@@ -51,6 +51,8 @@ export type SavedPayRun = {
   clientReference: string
   idempotencyKeyHash: string
   requestHash: string
+  policySnapshot: PayrollPolicySnapshot
+  policyAuthorizedAt: string
   createdAt: string
   updatedAt: string
 }
@@ -66,10 +68,23 @@ export type BusinessProfile = {
 }
 
 export type PayrollPolicy = {
+  version: number
   reserveUsdc: string
   maxPayRunUsdc: string
   payoutsPaused: boolean
   updatedAt: string
+}
+
+export type PayrollPolicySnapshot = Pick<PayrollPolicy, 'version' | 'reserveUsdc' | 'maxPayRunUsdc' | 'payoutsPaused'>
+
+export type TreasuryAuditEvent = {
+  id: string
+  type: 'treasury-shield.recorded' | 'payroll-policy.updated' | 'pay-run.created' | 'pay-run.prepared' | 'pay-run.submission-started' | 'pay-run.submitted' | 'pay-run.unknown' | 'pay-run.failed' | 'pay-run.finalized' | 'pay-run.reverted'
+  subjectId: string
+  summary: string
+  createdAt: string
+  previousHash: string
+  eventHash: string
 }
 
 export type SavedPasskey = {
@@ -97,7 +112,7 @@ export type EncryptedWalletBackup = {
   updatedAt: string
 }
 
-export type AccountRecord = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
+export type AccountRecord = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
 export type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
@@ -141,7 +156,30 @@ function emptyProfile(): BusinessProfile {
 }
 
 function emptyPayrollPolicy(): PayrollPolicy {
-  return { reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
+  return { version: 0, reserveUsdc: '0', maxPayRunUsdc: '0', payoutsPaused: false, updatedAt: '' }
+}
+
+function policySnapshot(policy: PayrollPolicy): PayrollPolicySnapshot {
+  return { version: policy.version, reserveUsdc: policy.reserveUsdc, maxPayRunUsdc: policy.maxPayRunUsdc, payoutsPaused: policy.payoutsPaused }
+}
+
+export function verifyTreasuryAuditChain(events: TreasuryAuditEvent[]) {
+  let previousHash = ''
+  for (const auditEvent of events) {
+    const { eventHash, ...event } = auditEvent
+    if (event.previousHash !== previousHash || createHash('sha256').update(JSON.stringify(event)).digest('hex') !== eventHash) return false
+    previousHash = eventHash
+  }
+  return true
+}
+
+function appendTreasuryAudit(account: AccountRecord, type: TreasuryAuditEvent['type'], subjectId: string, summary: string, createdAt = new Date().toISOString()) {
+  if (!verifyTreasuryAuditChain(account.treasuryAudit)) throw new Error('Treasury audit integrity check failed.')
+  const previousHash = account.treasuryAudit.at(-1)?.eventHash || ''
+  const event = { id: randomUUID(), type, subjectId, summary: cleanText(summary, 240), createdAt, previousHash }
+  const auditEvent: TreasuryAuditEvent = { ...event, eventHash: createHash('sha256').update(JSON.stringify(event)).digest('hex') }
+  account.treasuryAudit.push(auditEvent)
+  return auditEvent
 }
 
 async function readStore(): Promise<StoreFile> {
@@ -178,11 +216,13 @@ async function mutate<T>(operation: (store: StoreFile) => T | Promise<T>) {
 function accountIn(store: StoreFile, address: string) {
   const key = walletAddress(address)
   const now = new Date().toISOString()
-  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), payrollPolicy: emptyPayrollPolicy(), teams: [], payRuns: [], treasuryShields: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
+  const account = store.accounts[key] ?? (store.accounts[key] = { walletAddress: key, profile: emptyProfile(), payrollPolicy: emptyPayrollPolicy(), teams: [], payRuns: [], treasuryShields: [], treasuryAudit: [], passkeys: [], encryptedWalletBackup: null, createdAt: now, updatedAt: now })
   account.profile ??= emptyProfile()
   account.profile.emailVerifiedAt ??= ''
   account.payrollPolicy ??= emptyPayrollPolicy()
+  account.payrollPolicy.version ??= account.payrollPolicy.updatedAt ? 1 : 0
   account.treasuryShields ??= []
+  account.treasuryAudit ??= []
   account.passkeys ??= []
   for (const passkey of account.passkeys) {
     passkey.prfInput ??= ''
@@ -198,6 +238,8 @@ function accountIn(store: StoreFile, address: string) {
     payRun.clientReference ??= ''
     payRun.idempotencyKeyHash ??= ''
     payRun.requestHash ??= ''
+    payRun.policySnapshot ??= policySnapshot(account.payrollPolicy)
+    payRun.policyAuthorizedAt ??= payRun.createdAt
   }
   return account
 }
@@ -223,6 +265,8 @@ export function publicAccount(account: AccountRecord) {
     teams: account.teams,
     payRuns: account.payRuns.map(publicPayRun),
     treasuryShields: account.treasuryShields,
+    treasuryAudit: account.treasuryAudit.slice(-100),
+    treasuryAuditVerified: verifyTreasuryAuditChain(account.treasuryAudit),
     passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt })),
     recoveryReady: account.passkeys.filter(passkey => passkey.prfCapable).length >= 2,
     encryptedWalletBackup: account.encryptedWalletBackup ? { available: true, updatedAt: account.encryptedWalletBackup.updatedAt } : null,
@@ -378,6 +422,7 @@ export async function recordTreasuryShield(address: string, input: any) {
     const shield: TreasuryShieldRecord = { transactionHash, amountUsdc: amount(input?.amountUsdc), submittedAt: new Date().toISOString() }
     account.treasuryShields.unshift(shield)
     account.treasuryShields = account.treasuryShields.slice(0, 20)
+    appendTreasuryAudit(account, 'treasury-shield.recorded', transactionHash, `Recorded ${shield.amountUsdc} USDC payroll funding.`, shield.submittedAt)
     account.updatedAt = shield.submittedAt
     return shield
   })
@@ -556,8 +601,9 @@ export async function createPayRun(address: string, input: any, idempotencyKey =
     const maxPayRun = amountUnits(account.payrollPolicy.maxPayRunUsdc)
     if (maxPayRun > 0n && total > maxPayRun) throw Object.assign(new Error(`This pay run exceeds the organization limit of ${account.payrollPolicy.maxPayRunUsdc} USDC.`), { status: 409 })
     const now = new Date().toISOString()
-    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, settlementMode, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', clientReference, idempotencyKeyHash, requestHash, createdAt: now, updatedAt: now }
+    const payRun: SavedPayRun = { id: randomUUID(), teamId: team.id, teamName: team.name, settlementMode, status: 'draft', totalUsdc: `${total / 1_000_000n}.${(total % 1_000_000n).toString().padStart(6, '0')}`.replace(/\.?0+$/, ''), items, transactionHash: '', submissionAttemptedAt: '', finalityCheckedAt: '', acceptedBlockNumber: null, finalityMessage: '', clientReference, idempotencyKeyHash, requestHash, policySnapshot: policySnapshot(account.payrollPolicy), policyAuthorizedAt: now, createdAt: now, updatedAt: now }
     account.payRuns.unshift(payRun)
+    appendTreasuryAudit(account, 'pay-run.created', payRun.id, `Created ${payRun.totalUsdc} USDC pay-run intent.`, now)
     account.updatedAt = now
     return payRun
   })
@@ -568,11 +614,13 @@ export async function updatePayrollPolicy(address: string, input: any) {
     const account = accountIn(store, address)
     const now = new Date().toISOString()
     account.payrollPolicy = {
+      version: account.payrollPolicy.version + 1,
       reserveUsdc: nonNegativeAmount(input?.reserveUsdc, 'Protected reserve'),
       maxPayRunUsdc: nonNegativeAmount(input?.maxPayRunUsdc, 'Maximum pay run'),
       payoutsPaused: input?.payoutsPaused === true,
       updatedAt: now,
     }
+    appendTreasuryAudit(account, 'payroll-policy.updated', String(account.payrollPolicy.version), `Set reserve ${account.payrollPolicy.reserveUsdc} USDC, maximum ${account.payrollPolicy.maxPayRunUsdc} USDC, payouts ${account.payrollPolicy.payoutsPaused ? 'paused' : 'active'}.`, now)
     account.updatedAt = now
     return account.payrollPolicy
   })
@@ -602,6 +650,9 @@ export async function updatePayRun(address: string, payRunId: string, input: any
       if (account.payrollPolicy.payoutsPaused) throw Object.assign(new Error('Payroll payouts are paused by the organization policy.'), { status: 409 })
       const maxPayRun = amountUnits(account.payrollPolicy.maxPayRunUsdc)
       if (maxPayRun > 0n && amountUnits(payRun.totalUsdc) > maxPayRun) throw Object.assign(new Error(`This pay run exceeds the organization limit of ${account.payrollPolicy.maxPayRunUsdc} USDC.`), { status: 409 })
+      if (status === 'submitting' && Number(input?.expectedPolicyVersion) !== account.payrollPolicy.version) throw Object.assign(new Error('Payroll controls changed after this batch was checked. Check the batch again before approval.'), { status: 409 })
+      payRun.policySnapshot = policySnapshot(account.payrollPolicy)
+      payRun.policyAuthorizedAt = new Date().toISOString()
     }
     const transactionHash = cleanText(input?.transactionHash, 80).toLowerCase()
     if (status === 'submitted' && !/^0x[0-9a-fA-F]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('A transaction hash is required for a submitted pay run.'), { status: 400 })
@@ -614,6 +665,11 @@ export async function updatePayRun(address: string, payRunId: string, input: any
     if (status === 'unknown') payRun.finalityMessage = 'Wallet submission outcome is unknown. Do not retry this payroll until its transaction is recovered or ruled out.'
     payRun.items = payRun.items.map(item => ({ ...item, status: status as SavedPayRunItem['status'] }))
     payRun.updatedAt = new Date().toISOString()
+    if (status === 'prepared') appendTreasuryAudit(account, 'pay-run.prepared', payRun.id, `Prepared ${payRun.totalUsdc} USDC pay run under policy v${payRun.policySnapshot.version}.`, payRun.updatedAt)
+    if (status === 'submitting') appendTreasuryAudit(account, 'pay-run.submission-started', payRun.id, `Authorized wallet submission under policy v${payRun.policySnapshot.version}.`, payRun.updatedAt)
+    if (status === 'submitted') appendTreasuryAudit(account, 'pay-run.submitted', payRun.id, `Recorded submitted transaction ${payRun.transactionHash}.`, payRun.updatedAt)
+    if (status === 'unknown') appendTreasuryAudit(account, 'pay-run.unknown', payRun.id, 'Wallet submission outcome requires reconciliation.', payRun.updatedAt)
+    if (status === 'failed') appendTreasuryAudit(account, 'pay-run.failed', payRun.id, 'Pay run stopped without a recorded successful submission.', payRun.updatedAt)
     account.updatedAt = payRun.updatedAt
     return payRun
   })
@@ -644,6 +700,7 @@ export async function recordPayRunFinality(address: string, payRunId: string, in
     payRun.finalityCheckedAt = new Date().toISOString()
     payRun.finalityMessage = cleanText(input.message, 240)
     payRun.updatedAt = payRun.finalityCheckedAt
+    appendTreasuryAudit(account, input.status === 'finalized' ? 'pay-run.finalized' : input.status === 'reverted' ? 'pay-run.reverted' : 'pay-run.unknown', payRun.id, payRun.finalityMessage, payRun.updatedAt)
     account.updatedAt = payRun.updatedAt
     return payRun
   })
@@ -661,6 +718,7 @@ export async function resolveUnknownPayRun(address: string, payRunId: string, co
     payRun.finalityCheckedAt = new Date().toISOString()
     payRun.finalityMessage = 'The account owner confirmed after fresh authentication that Ready showed no submitted transaction. A new payroll may now be prepared.'
     payRun.updatedAt = payRun.finalityCheckedAt
+    appendTreasuryAudit(account, 'pay-run.failed', payRun.id, payRun.finalityMessage, payRun.updatedAt)
     account.updatedAt = payRun.updatedAt
     return payRun
   })
