@@ -398,7 +398,7 @@ export function App() {
   }
 
   async function signIn(selectedWallet?: WalletWithStarknetFeatures) {
-    const connected = await connectWallet(selectedWallet)
+    const connected = wallet || await connectWallet(selectedWallet)
     if (!connected) return
     const address = connected.address
     try {
@@ -423,7 +423,10 @@ export function App() {
         setSessionStatus('signed-in')
       }
     } catch (error) {
-      alert(`Could not open your KudiRoll account. ${readableError(error)}`)
+      const message = readableError(error)
+      alert(/timeout|timed out/i.test(message)
+        ? 'Ready X connected, but the sign-in approval timed out. Open Ready X and click Continue with Ready X again; you do not need to reconnect.'
+        : `Could not open your KudiRoll account. ${message}`)
     } finally {
       setBusy('')
     }
