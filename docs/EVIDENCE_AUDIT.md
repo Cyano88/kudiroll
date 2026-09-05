@@ -25,3 +25,8 @@ Scope: recovered payroll evidence exports in KudiRoll and standalone KudiRail, P
 ## Remaining external evidence
 
 Deployment, a real Ready private-transfer recipient confirmation, provider settlement certification, and a design-partner commitment remain separate pending steps. Use PAYROLL_EVIDENCE.md for the controlled wallet and Paycrest checklist. The application policy remains an application control, not an organization smart-account restriction. No viewing keys, notes, proofs, real bank records, or credentials were used for this audit.
+
+
+## Production rollout follow-up
+
+The production demo exposed another mobile edge case: full transaction hashes in audit summaries exceeded the text flex item width. The history text child now permits shrinking and wraps long identifiers. This supplements the synthetic-account layout check, whose short summaries did not expose the issue.

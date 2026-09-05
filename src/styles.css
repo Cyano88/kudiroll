@@ -225,6 +225,8 @@ footer code { overflow-wrap: anywhere; color: #292a23; }
 .historyRow { display: grid; grid-template-columns: minmax(220px, 1.4fr) minmax(125px, .65fr) minmax(180px, .85fr) minmax(100px, .55fr); align-items: center; gap: 16px; border-top: 1px solid #e8ebe6; padding: 15px 2px; }
 .historyRow.compact { grid-template-columns: minmax(0, 1fr) minmax(190px, auto); }
 .historyIdentity { display: flex; align-items: center; min-width: 0; gap: 11px; }
+.historyIdentity > div { min-width: 0; }
+.historyIdentity > div > span { overflow-wrap: anywhere; }
 .historyMark { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: #52614b; background: #edf1ea; }
 .historyMark svg { width: 17px; height: 17px; }
 .historyIdentity strong, .historyIdentity span, .historyAmount strong, .historyAmount span, .historyStatus small, .historyMeta strong, .historyMeta span { display: block; }
