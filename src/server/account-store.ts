@@ -48,6 +48,7 @@ export type SavedPayRun = {
   finalityCheckedAt: string
   acceptedBlockNumber: number | null
   finalityMessage: string
+  verifiedPoolAddress?: string
   clientReference: string
   idempotencyKeyHash: string
   requestHash: string
@@ -235,6 +236,7 @@ function accountIn(store: StoreFile, address: string) {
     payRun.finalityCheckedAt ??= ''
     payRun.acceptedBlockNumber ??= null
     payRun.finalityMessage ??= ''
+    payRun.verifiedPoolAddress ??= ''
     payRun.clientReference ??= ''
     payRun.idempotencyKeyHash ??= ''
     payRun.requestHash ??= ''
@@ -675,7 +677,7 @@ export async function updatePayRun(address: string, payRunId: string, input: any
   })
 }
 
-export async function recordPayRunFinality(address: string, payRunId: string, input: { status: 'finalized' | 'reverted' | 'unknown'; acceptedBlockNumber?: number; message: string }) {
+export async function recordPayRunFinality(address: string, payRunId: string, input: { status: 'finalized' | 'reverted' | 'unknown'; acceptedBlockNumber?: number; verifiedPoolAddress?: string; message: string }) {
   return mutate(store => {
     const account = accountIn(store, address)
     const payRun = account.payRuns.find(item => item.id === payRunId)
@@ -694,6 +696,9 @@ export async function recordPayRunFinality(address: string, payRunId: string, in
     if (!transitions[payRun.status].includes(input.status)) throw Object.assign(new Error(`A ${payRun.status} pay run cannot be recorded as ${input.status}.`), { status: 409 })
     const acceptedBlockNumber = input.acceptedBlockNumber
     if (acceptedBlockNumber !== undefined && (!Number.isSafeInteger(acceptedBlockNumber) || acceptedBlockNumber < 0)) throw Object.assign(new Error('Invalid accepted block number.'), { status: 400 })
+    const verifiedPoolAddress = input.verifiedPoolAddress?.trim().toLowerCase() || ''
+    if (verifiedPoolAddress && (input.status !== 'finalized' || !/^0x[0-9a-f]{1,64}$/.test(verifiedPoolAddress) || acceptedBlockNumber === undefined)) throw Object.assign(new Error('Invalid verified pool evidence.'), { status: 400 })
+    payRun.verifiedPoolAddress = verifiedPoolAddress
     payRun.status = input.status
     payRun.items = payRun.items.map(item => ({ ...item, status: input.status }))
     payRun.acceptedBlockNumber = acceptedBlockNumber ?? payRun.acceptedBlockNumber

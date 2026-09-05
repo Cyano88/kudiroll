@@ -341,3 +341,17 @@ The public settlement boundary is useful evidence, not automatic AML compliance 
 - If the owner explicitly defers a manual checkpoint, keep it recorded as an unverified release blocker; later phases may proceed, but the deferred phase is never described as production-certified.
 - Mainnet-affecting wallet actions always require explicit confirmation at the moment of submission even after this plan is approved.
 - The STRK20 skill changes application code only and will not generate Cairo contracts.
+
+
+## Phase 7D - payroll evidence and settlement timing (2026-09-05)
+
+Recovered from the interrupted session and continued locally. Scope: sanitized payroll exports in KudiRoll and standalone KudiRail, authenticated tenant isolation, explicit private/public proof limits, and durable Paycrest payment timing. The manual procedure is in `docs/PAYROLL_EVIDENCE.md`. No wallet call or transaction is part of this implementation phase.
+
+Freshness: the skill checker reports starknet next 10.7.1, discovery next 6.0.4, wallet-standard next 6.0.5, and stable Wallet API 0.10.3. Existing app pins remain 10.7.0/6.0.4/0.10.3. The old sub-account anonymizer path remains absent and shadow-account examples exist. This evidence-only phase does not change wallet dependencies or adopt those examples. The official Wallet API overview was read; the WalletAccount guide fetch failed, so no new wallet method is assumed.
+
+Verification: clean locked installs passed; KudiRail 61/61 tests and typecheck passed; KudiRoll 80/80 tests, typecheck, and production build passed; both diff checks passed. Production dependency audits report three moderate entries each (qs and its Express/body-parser dependents), zero high/critical; dependency remediation remains open. The build reports a dependency eval warning in @module-federation/sdk. Manual browser export review, recipient-wallet confirmation, provider certification, and deployment remain pending. No new Mainnet evidence or enterprise pilot is claimed.
+
+
+### Phase 7D audit follow-up - locally verified 2026-09-05
+
+Owner requested "audit and go". The code audit, dependency remediation, and synthetic browser export checkpoint are complete; see `docs/EVIDENCE_AUDIT.md`. KudiRail now passes 65 tests and KudiRoll 83; both builds and clean installs pass, and both dependency audits are clear after the exact qs 6.16.0 override. The production build still reports the existing module-federation eval warning. Mobile export actions were found hidden during visual review and fixed, then an actual mobile download succeeded. Recorded pool evidence replaces prose inference; unaccepted receipts cannot establish finality; known payment timing survives temporary RPC outages. Deployment and real wallet/provider certification are still unverified and are not implied by this local checkpoint.

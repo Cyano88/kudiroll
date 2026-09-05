@@ -11,6 +11,10 @@ KudiRoll is a public alpha backed by the standalone KudiRail service and managed
 - Paycrest is isolated as a guided settlement pilot and live order creation is disabled by default.
 - Local typecheck, tests, and production build pass.
 
+## Evidence review
+
+The local payroll evidence export and the manual private-delivery/Paycrest verification checklist are documented in [PAYROLL_EVIDENCE.md](PAYROLL_EVIDENCE.md). An export is not recipient-wallet confirmation or bank-settlement certification.
+
 ## Release gates
 
 | Gate | State | Required evidence |

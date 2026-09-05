@@ -4,7 +4,7 @@ type Fetcher = typeof fetch
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type', 'cookie', 'idempotency-key', 'origin', 'user-agent', 'x-paycrest-signature'] as const
-const FORWARDED_RESPONSE_HEADERS = ['cache-control', 'content-type', 'kudiroll-api-version', 'retry-after'] as const
+const FORWARDED_RESPONSE_HEADERS = ['cache-control', 'content-type', 'content-disposition', 'kudiroll-api-version', 'retry-after'] as const
 
 export function normalizeKudiRailUpstream(value: string | undefined) {
   const candidate = String(value || '').trim()

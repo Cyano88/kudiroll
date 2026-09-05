@@ -1214,3 +1214,10 @@ html[data-theme='dark'] .demoExit { color: #c6ddce; border-color: #364039; backg
   .demoBanner { align-items: flex-start; flex-direction: column; }
 }
 .demoReadonlyLabel { color: #c8d2c5; font-size: .63rem; font-weight: 750; }
+
+
+@media (max-width: 980px) {
+  .historyMeta.payrollActions { display: flex; grid-column: 1 / -1; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+  .historyMeta.payrollActions > strong, .historyMeta.payrollActions > span { display: none; }
+  .historyMeta.payrollActions button { min-height: 44px; padding: 10px 12px; }
+}

@@ -113,3 +113,22 @@ test('proxies a Paycrest raw body and signature without reserializing either', a
     ])
   }
 })
+
+
+test('evidence downloads retain attachment headers and exact JSON through the production proxy', async () => {
+  const payload = JSON.stringify({ schema: 'kudiroll.payroll-evidence.v1', integrity: { signed: false } }, null, 2)
+  const app = express()
+  app.use('/api/v1', createKudiRailProxy('https://kudirail.example', async () => new Response(payload, {
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="kudiroll-payroll-test.json"', 'Cache-Control': 'no-store' },
+  })))
+  const proxy = await listen(app)
+  try {
+    const response = await fetch(`${proxy.origin}/api/v1/pay-runs/test/evidence`)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="kudiroll-payroll-test.json"')
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.equal(await response.text(), payload)
+  } finally {
+    await new Promise<void>((resolve, reject) => proxy.server.close(error => error ? reject(error) : resolve()))
+  }
+})

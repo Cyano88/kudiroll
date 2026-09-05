@@ -1432,6 +1432,24 @@ function ProductShell({
     } finally { setAccountAction('') }
   }
 
+  async function exportPayRunEvidence(payRunId: string) {
+    setAccountAction(`evidence-pay-run:${payRunId}`)
+    try {
+      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `HTTP ${response.status}`)
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `kudiroll-payroll-${payRunId}.json`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (error) {
+      window.alert(`Could not export payroll evidence. ${readableError(error)}`)
+    } finally { setAccountAction('') }
+  }
+
   return <div className="productFrame">
     <aside className="sideRail">
       <button className="brandButton" onClick={() => onSection('overview')}><img src="/kudiroll-mark.svg" alt="" /><strong>KudiRoll</strong></button>
@@ -1521,7 +1539,7 @@ function ProductShell({
       {section === 'activity' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked payroll-funding shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Payroll funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
-        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><h3>Team pay runs</h3></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
+        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Shareable evidence</span><h3>Team pay runs</h3></div></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} onExport={exportPayRunEvidence} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}` || accountAction === `evidence-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
         {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>Treasury audit trail</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
@@ -1700,7 +1718,7 @@ function PaycrestOrderRow({ order, compact = false, busy = '', onReconcile, onEx
   </article>
 }
 
-function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, verifying = false }: { run: SavedPayRun; compact?: boolean; onVerify?: (payRunId: string) => void; onResolveUnknown?: (payRunId: string) => void; verifying?: boolean }) {
+function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, onExport, verifying = false }: { run: SavedPayRun; compact?: boolean; onVerify?: (payRunId: string) => void; onResolveUnknown?: (payRunId: string) => void; onExport?: (payRunId: string) => void; verifying?: boolean }) {
   const safe = run.status === 'finalized'
   const blocked = ['reverted', 'unknown', 'failed'].includes(run.status)
   const detail = run.finalityMessage || (run.status === 'draft' ? 'Saved · nothing sent' : run.status === 'prepared' ? 'Wallet simulation passed' : run.status === 'submitting' ? 'Waiting for Ready; do not retry' : run.status === 'submitted' ? 'Hash recorded · verify finality' : 'Payroll status')
@@ -1708,7 +1726,7 @@ function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, verifying
     <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong>{run.transactionHash ? <a href={`https://starkscan.co/tx/${run.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(run.transactionHash)}</a> : <span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span>}</div></div>
     {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>{run.settlementMode === 'private' ? 'Fully private' : 'Direct wallet payout'}</span></div>}
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{run.status}</span><small>{detail}</small></div>
-    {!compact && <div className="historyMeta"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && !safe && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}</div>}
+    {!compact && <div className="historyMeta payrollActions"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}{onExport && <button className="rowAction" onClick={() => onExport(run.id)} disabled={verifying}>{verifying ? 'Preparing...' : 'Export evidence'}</button>}</div>}
   </article>
 }
 
