@@ -43,11 +43,11 @@ KudiRoll does not store plaintext wallet private keys, viewing keys, notes, proo
 
 STRK20 pool fees are calculated and displayed by the privacy wallet at approval time. KudiRoll does not hard-code or promise a historical fee. The app applies a disclosed 0.01 USDC product minimum and lets wallet simulation reject insufficient public USDC or fee allowance.
 
-## Paycrest pilot
+## Nigerian bank payouts - beta
 
 The separate Naira payout route verifies the recipient, creates one Paycrest order, previews the exact STRK20 payment, and asks Ready X for the final wallet approval. Paycrest currently creates one settlement order per recipient, so it is not presented as the atomic private team-payment path.
 
-Live Naira settlement remains a pilot until the Starknet route passes deposit detection, payout, status tracking, and recovery certification end to end.
+The onchain funding leg has been verified: the exact USDC payment reached the assigned Paycrest order address before expiry. Deposit detection and Naira bank delivery remain unconfirmed for the latest test. Payments may be delayed while this detection issue is unresolved; no completion time is confirmed. We are in discussions with the Paycrest team to resolve it. End-to-end bank settlement, refunds, and recovery remain under validation. See the [submission note](docs/SUBMISSION_NOTE.md) for the dated evidence.
 
 ## Safety boundaries
 

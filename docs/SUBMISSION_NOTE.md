@@ -2,6 +2,14 @@
 
 ## Additional verified evidence - 6 September 2026
 
+### Nigerian bank payouts - beta
+
+The onchain funding leg is verified. An independent Mainnet check confirmed that the exact USDC amount reached the assigned Paycrest order address from the STRK20 pool before expiry, in block **14,435,234**, with `SUCCEEDED` / `ACCEPTED_ON_L2` status.
+
+[View the bank-payout funding transaction on Starkscan](https://starkscan.co/tx/0x65d94624ad004db4df4c195ad0b42f407d55c3431d61321b8afae722978b114).
+
+At the provider check on 6 September 2026 at 03:46 UTC, Paycrest still reported `initiated`, zero detected payment, and zero returned funds. Deposit detection and bank delivery are not yet confirmed. Payments may be delayed while this detection issue is unresolved; no completion time is confirmed. The project team reports that it is in discussions with Paycrest to resolve detection. This beta status does not establish end-to-end bank settlement or refund certification.
+
 ### Private transfer to a separate wallet
 
 KudiRoll subsequently completed a single-recipient private payroll test. The project operator confirmed that the recipient wallet differed from the sending C3 wallet and that receipt was confirmed in the recipient's shielded balance/activity. These wallet details and receipt confirmation are operator-reported.
