@@ -11,3 +11,7 @@ The file is parsed locally for preview. Saving sends the reviewed rows through t
 ## Validation
 
 Full suites passed at 94 frontend and 76 backend tests, followed by passing added import HTTP tests in both repositories (95 and 77 total). Tests cover malformed CSV, quoted fields, canonical wallet identity, bounds and amounts, atomic rejection, concurrent duplicate imports, team/account isolation, and unauthenticated or stale-account requests. Both builds passed. Synthetic browser checks covered duplicate rejection, editing an address and saving two workers; mobile content fit the 390px viewport. No real account records or payments were changed during verification.
+
+## Production checkpoint - 6 September 2026
+
+Backend `5444c33` and frontend `f5a31c9` are deployed. The live health endpoint confirmed both release identifiers at approximately 18:06 UTC. The backend import endpoint returned 401 without a session. The live read-only demo Team screen rendered the CSV template and upload section with mutations disabled and no browser console errors. Authenticated editing, saving and workspace isolation were checked with synthetic accounts before deployment; no production worker records were created during the release check.
