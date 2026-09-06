@@ -12,6 +12,8 @@ KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, 
 
 The [submission note](docs/SUBMISSION_NOTE.md) adds two verified Mainnet transactions after the recorded demo: an initial private self-transfer and a subsequent private transfer to a separate wallet. Both receipts succeeded and contain an event from the recorded STRK20 pool; sanitized export checksums were verified. Receipt in the separate wallet's shielded balance/activity was confirmed by the project operator. The note distinguishes that confirmation from what public chain evidence can establish. Transaction hashes are included in [strk20.json](strk20.json).
 
+The live app now has Home, Personal payroll and Enterprise navigation, separate workspace records, and durable payment-recovery controls. Follow the [two-minute judge walkthrough](docs/JUDGE_WALKTHROUGH.md). The submission note also records the latest Paycrest discrepancy: the provider reports the funded order as expired while its exact onchain payment before expiry is verified. Bank delivery and refund remain unconfirmed. The uploaded video is unchanged.
+
 ## Current product flow
 
 1. Connect Ready X on Starknet Mainnet. A secure session or saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.

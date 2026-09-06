@@ -1,14 +1,24 @@
 # Submission note
 
+## Deployed product improvements - 6 September 2026
+
+The uploaded [demo video](https://youtu.be/0Aa_1LXS-Gw) is unchanged. This note supplements it with later evidence and the current live product. Follow the [judge walkthrough](JUDGE_WALKTHROUGH.md) for a short, read-only tour.
+
+- **Simpler navigation:** Home, Personal payroll and Enterprise are the primary destinations. Both workspaces use Overview, Team, Pay runs, Payout methods and History. Bank payout sits inside Payout methods; KudiRail docs and Business profile retain their sidebar positions.
+- **Separate records:** Personal and Enterprise keep their own teams, saved pay runs and bank orders. Existing personal records retain their attribution. Wallet balance, funding and payroll controls remain shared; Enterprise does not yet provide staff roles or two-person approval.
+- **Recovery and duplicate prevention:** Funding attempts persist before wallet invocation, and returned public transaction hashes are captured before server persistence. KudiRail reserves bank-order creation before contacting Paycrest and retains ambiguous attempts for recovery. Uncertain payroll outcomes require explicit recovery; a timeout does not establish that nothing was sent.
+
+A live health check on 6 September 2026 confirmed KudiRoll `fbaa1d6` with KudiRail `d21bc63`. Navigation validation included the production build, 90 passing frontend tests, synthetic workspace-isolation checks and desktop/390px mobile browser checks. Recovery validation used temporary stores and mocked providers; it does not certify production failure recovery or bank settlement. See [navigation validation](NAVIGATION.md) and [recovery remediation](FLOW_AUDIT.md#recovery-remediation---6-september-2026).
+
 ## Additional verified evidence - 6 September 2026
 
 ### Nigerian bank payouts - beta
 
-The onchain funding leg is verified. An independent Mainnet check confirmed that the exact USDC amount reached the assigned Paycrest order address from the STRK20 pool before expiry, in block **14,435,234**, with `SUCCEEDED` / `ACCEPTED_ON_L2` status.
+The onchain funding leg is verified. An independent Mainnet check confirmed that the exact USDC amount reached the assigned Paycrest order address from the STRK20 pool before expiry, in block **14,435,234**, with `SUCCEEDED` status. The latest receipt check confirmed `ACCEPTED_ON_L1`.
 
 [View the bank-payout funding transaction on Starkscan](https://starkscan.co/tx/0x65d94624ad004db4df4c195ad0b42f407d55c3431d61321b8afae722978b114).
 
-At the provider check on 6 September 2026 at 03:46 UTC, Paycrest still reported `initiated`, zero detected payment, and zero returned funds. Deposit detection and bank delivery are not yet confirmed. Payments may be delayed while this detection issue is unresolved; no completion time is confirmed. The project team reports that it is in discussions with Paycrest to resolve detection. This beta status does not establish end-to-end bank settlement or refund certification.
+At the read-only provider recheck on **6 September 2026 at 09:45 UTC**, Paycrest reported **`expired`**, zero detected payment and zero returned funds for the matching order. This supersedes the 03:46 UTC observation of `initiated`. A fresh chain check still proved the exact USDC payment reached the assigned order address before expiry, in block 14,435,234, now accepted on L1. Provider deposit detection, bank delivery and refund remain unconfirmed. The mismatch requires reconciliation with Paycrest; an expired provider status does not prove that no onchain payment occurred or that funds were refunded. The project team reports that it is in discussions with Paycrest. No completion time is confirmed, and this beta evidence does not establish end-to-end bank settlement or refund certification.
 
 ### Private transfer to a separate wallet
 
