@@ -8,6 +8,10 @@ KudiRoll is separated into **[KudiRail](https://github.com/Cyano88/kudirail)**, 
 >
 > **Judges and reviewers:** [explore the public read-only workspace](https://kudiroll-production.up.railway.app/demo) without installing a wallet or signing in. It uses clearly labeled sample business data, exposes verified public transaction evidence, and disables every money or data mutation.
 
+## Submission evidence update - 6 September 2026
+
+The [submission note](docs/SUBMISSION_NOTE.md) adds two verified Mainnet transactions after the recorded demo: an initial private self-transfer and a subsequent private transfer to a separate wallet. Both receipts succeeded and contain an event from the recorded STRK20 pool; sanitized export checksums were verified. Receipt in the separate wallet's shielded balance/activity was confirmed by the project operator. The note distinguishes that confirmation from what public chain evidence can establish. Transaction hashes are included in [strk20.json](strk20.json).
+
 ## Current product flow
 
 1. Connect Ready X on Starknet Mainnet. A secure session or saved passkey can reopen an existing workspace, but Ready X remains required for private wallet actions until the email-first embedded wallet passes Mainnet certification.
