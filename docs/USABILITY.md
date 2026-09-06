@@ -11,3 +11,5 @@ Funding uses Amount to add, one mature-funding status, and a transaction link. E
 Validation: production build and 97 tests passed, including balance-shortage and reserve-boundary tests. Synthetic browser checks saved an Enterprise draft without a wallet or balance and reopened its unchanged snapshot from History. No wallet transaction was created.
 
 Further browser validation: Escape canceled team deletion; confirming deletion removed the synthetic team and kept both drafts in History. The funding recovery form displayed its labeled hash input at 390px width, and Cancel retained the pending attempt. No native browser dialogs appeared in these flows.
+
+Production checkpoint: KudiRoll `6491e5b` is live and healthy with KudiRail `5444c33`, verified on 6 September 2026 at approximately 19:01 UTC. A final synthetic Personal payroll check also saved a draft without Ready or a checked balance. Both tested browser sessions reported zero console errors.
