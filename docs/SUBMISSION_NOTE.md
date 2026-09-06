@@ -1,5 +1,19 @@
 # Submission note
 
+## Start here: what the evidence establishes
+
+KudiRoll combines STRK20 payroll with reusable teams and a durable KudiRail backend. Start with the [submitted video](https://youtu.be/0Aa_1LXS-Gw), [live read-only demo](https://kudiroll-production.up.railway.app/demo), and [two-minute walkthrough](JUDGE_WALKTHROUGH.md).
+
+| Evidence | What it establishes | Limit |
+| --- | --- | --- |
+| [Two-recipient Mainnet payroll](https://starkscan.co/tx/0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a) | The recorded demo's atomic two-recipient payout from shielded funds. | This is the public-recipient route: recipient addresses and withdrawal amounts are public. |
+| [Separate-wallet private transfer](https://starkscan.co/tx/0x29a0f318bca0bca7799ebd593a8eeb0718a23ac4b0c72f163bcb112a1af7c33) | Verified Mainnet execution, plus operator-confirmed receipt in a different wallet's shielded balance/activity. | Public chain evidence alone cannot identify private recipients or prove note delivery. |
+| [Recovery implementation and validation](FLOW_AUDIT.md#recovery-remediation---6-september-2026) | Durable attempts, duplicate-prevention controls and explicit recovery for uncertain outcomes. | Regression and synthetic checks are not production fault-injection certification. |
+| [CSV onboarding and workspace isolation](TEAM_IMPORT.md) | Live editable CSV import with atomic validation and separate Personal/Enterprise team records. | Synthetic workflow evidence; it does not register private-transfer recipients or prove a new payment. |
+
+The live CSV releases are KudiRoll `f5a31c9` and KudiRail `5444c33`; their deployment checkpoint is recorded in [team import validation](TEAM_IMPORT.md#production-checkpoint---6-september-2026). The uploaded video remains unchanged. Enterprise is owner-operated, with shared wallet funding; staff roles and two-person approval are not yet implemented. Bank settlement remains beta, with provider reconciliation being handled by the Paycrest team as reported by the project operator.
+
+
 ## Deployed product improvements - 6 September 2026
 
 The uploaded [demo video](https://youtu.be/0Aa_1LXS-Gw) is unchanged. This note supplements it with later evidence and the current live product. Follow the [judge walkthrough](JUDGE_WALKTHROUGH.md) for a short, read-only tour.
