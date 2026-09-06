@@ -1,6 +1,8 @@
-# Database cutover runbook
+# Database operations and cutover runbook
 
-KudiRoll defaults to its local file stores. PostgreSQL activation is explicit and must not happen until a managed database, migration, encrypted import, backup and rollback window are ready.
+Production KudiRail already uses PostgreSQL for accounts and authentication. The September 6, 2026 health audit confirmed schema 2 and database reachability. Local defaults may still use file stores. The activation steps below apply to a new environment; do not replay an initial import against the live database.
+
+The [isolated PostgreSQL restore drill passed](https://github.com/Cyano88/kudirail/actions/runs/34059444795) with synthetic account and authentication records. Managed production snapshot recovery, backup retention and key rotation remain unverified. See the backend [drill scope and operational follow-up](https://github.com/Cyano88/kudirail/blob/main/docs/RESTORE_DRILL.md).
 
 ## Stored data boundaries
 
@@ -9,7 +11,7 @@ KudiRoll defaults to its local file stores. PostgreSQL activation is explicit an
 - Plaintext signer keys, viewing keys, STRK20 notes and proofs are never accepted by these stores.
 - The application encryption key is required only at runtime and must never enter source control, logs, support exports or database records.
 
-## Safe activation order
+## New-environment activation order
 
 1. Provision a private managed PostgreSQL service and a least-privilege application role.
 2. Configure `KUDIROLL_DATABASE_URL` and `KUDIROLL_DATA_ENCRYPTION_KEY` in the deployment secret store, leaving both backend selectors set to `file`.
@@ -22,8 +24,12 @@ KudiRoll defaults to its local file stores. PostgreSQL activation is explicit an
 
 ## Rollback boundary
 
-Before PostgreSQL accepts new writes, rollback is switching both selectors to `file`. After PostgreSQL accepts writes, switching back would restore stale file data; a tested reverse migration or database restore is required, so production activation remains blocked until that drill exists.
+Before PostgreSQL accepts new writes, rollback is switching both selectors to `file`. After PostgreSQL accepts writes, switching back would restore stale file data; a tested reverse migration or database restore is required, and no safe reverse migration has been certified. A code rollback must remain compatible with the current database schema; successful health checks alone do not prove data rollback safety.
 
 ## Key handling
 
 `KUDIROLL_DATA_ENCRYPTION_KEY` is exactly 32 random bytes encoded as canonical base64url. Losing it makes account records unrecoverable; rotating it requires a maintenance migration that decrypts each row with the previous key and re-encrypts it with the new key.
+
+## Managed recovery acceptance
+
+Verify the backup schedule and retention, then restore a managed snapshot into an isolated environment with payments and customer notifications disabled. Supply the matching encryption key through the secret store. Check account integrity, revoke restored sessions, and reconcile chain/provider outcomes before allowing retries: a backup can predate an actual payment. Record recovery duration and the data-loss window. The synthetic CI drill does not certify these managed recovery steps.

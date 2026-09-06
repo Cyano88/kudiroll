@@ -1,92 +1,37 @@
-# Public launch
+# Public launch readiness
 
-KudiRoll is a public alpha backed by the standalone KudiRail service and managed PostgreSQL. This checklist separates verified production infrastructure from the wallet, email-delivery, resilience, and settlement evidence still required before a general-availability claim.
+KudiRoll remains a public alpha. This September 6, 2026 audit separates shipped behavior from operational certification still needed before wider production use.
 
-## Recovered baseline
+## Verified baseline
 
-- React, Vite, and TypeScript frontend with an Express backend.
-- Wallet-signed accounts, reusable teams and workers, immutable pay-run snapshots, and history.
-- STRK20 batch preview, explicit wallet approval, one wallet submission, and transaction-hash persistence.
-- Responsive light and dark interfaces, including mobile navigation.
-- Paycrest is isolated as a guided settlement pilot and live order creation is disabled by default.
-- Local typecheck, tests, and production build pass.
+- Personal payroll and Enterprise have separate teams, pay runs and history; funding and wallet controls are shared. Enterprise does not yet provide shared staff access or two-person approval.
+- KudiRail uses encrypted PostgreSQL account storage and durable hashed authentication sessions. Public health reports schema 2 and a reachable database.
+- Verified runtime releases: KudiRoll `6491e5bcc39d2432a83e4709b94d48f782f0f1fb`; KudiRail `5444c333414bf721a671268797740656f38dd8e1`. Later documentation and CI commits do not change deployed runtime code.
+- Both repositories have passing CI. Both production dependency audits reported zero known vulnerabilities on September 6; this does not replace security review.
+- The [replacement demo](https://youtu.be/v0-Z7-jrWuE) is published in the submission metadata and documentation. YouTube metadata availability was checked; this audit did not review the video contents.
+- Five transaction references are listed in `strk20.json`. Their route-specific claims and operator evidence are described in [SUBMISSION_NOTE.md](SUBMISSION_NOTE.md) and [PAYROLL_EVIDENCE.md](PAYROLL_EVIDENCE.md).
+- The [isolated PostgreSQL restore drill passed](https://github.com/Cyano88/kudirail/actions/runs/34059444795): migrations, encrypted accounts, Personal/Enterprise records, synthetic transaction history, recovery attempts, session revocation and tenant isolation survived a logical dump and restore.
 
-## Evidence review
+## Remaining release gates
 
-The local payroll evidence export and the manual private-delivery/Paycrest verification checklist are documented in [PAYROLL_EVIDENCE.md](PAYROLL_EVIDENCE.md). An export is not recipient-wallet confirmation or bank-settlement certification.
-
-## Release gates
-
-| Gate | State | Required evidence |
+| Gate | Current state | Next evidence |
 | --- | --- | --- |
-| Reproducible source and CI | Complete | Public repositories, reviewed history, green CI, clean builds, and generated artifacts excluded. |
-| License and contribution policy | Complete | MIT license, contribution guide, and private security-reporting process are published. |
-| Email-first access | Activation pending | Add `RESEND_API_KEY` and `KUDIROLL_EMAIL_FROM` to KudiRail, redeploy, then prove request, OTP verification, returning sign-in, first-time wallet linking, and passkey upgrade. |
-| Atomic wallet payroll | Complete | Mainnet transaction `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` paid two ordinary Starknet wallets atomically from the connected Ready account's shielded USDC balance and was verified against the canonical STRK20 pool. Recipient addresses and amounts are public in this no-setup mode. |
-| Fully private payroll | Manual gate | Certify one smallest-safe Mainnet batch to at least two STRK20-registered recipients and verify the pool event and final application status. |
-| Production data | Operational drill pending | Encrypted PostgreSQL schema 2 is live; complete managed backup/restore, reverse migration, retention, deletion, and encryption-key rotation drills. |
-| Production sessions | Recovery drill pending | Durable hashed sessions, single-use challenges, revocation, and per-process rate limits are live; certify two-device passkey recovery and keep one KudiRail replica until distributed rate limiting is added. |
-| Hosting | Complete for public alpha | Both Railway services are HTTPS, health-gated, release-addressable, rollback-safe, and currently report healthy KudiRail/PostgreSQL dependencies. |
-| Security and privacy | Review pending | Security headers, origin policy, dependency audit, privacy/terms copy, and custody boundaries are implemented; complete an external threat review and incident-response drill. |
-| Paycrest settlement | Pilot | Deposit detection, payout completion, expiry, refund, failure, reconciliation, and recovery certification remain required before enabling new live orders. |
-| Starknet ecosystem package | Demo pending | Public URL, source, architecture, compatibility documentation, and three verified Mainnet transaction references exist; record and publish the sanitized three-minute demo. |
+| Managed backup and recovery | Isolated logical restore passed; production snapshot recovery unverified | Verify backup schedule and retention, restore a managed snapshot into isolation, measure recovery time/data loss, and reconcile payment state before retries. |
+| Encryption-key recovery and rotation | Encrypted storage is live; operational drills unverified | Demonstrate secure recovery of the matching key and a maintenance rotation with rollback. |
+| Account recovery | Durable sessions and recovery controls are implemented | Complete a two-device passkey/recovery exercise and verify revocation. Email delivery requires separate end-to-end certification. |
+| Scaling | Per-process rate limits | Keep one KudiRail replica until distributed rate limiting is implemented and verified. |
+| Security and operations | Application controls and dependency checks exist | Complete external threat review, incident-response exercise, and verify monitoring/alert delivery and retention/deletion procedures. |
+| Paycrest | Bank route is beta; provider reconciliation is being handled separately | Certify deposit detection, bank delivery, expiry/refund and recovery. An onchain settlement transfer alone does not certify NGN delivery. |
+| Private payroll | Published transaction and operator evidence exists | Preserve the exact recipient-count and delivery scope of each proof; do not infer a new multi-recipient private certification from the public-recipient atomic batch. |
 
-Implemented security baseline: sensitive Paycrest routes require a wallet-signed session, provider history is isolated by refund wallet, provider order refunds are bound to the authenticated wallet, and pay runs cannot skip preparation before submission. Authentication and recovery endpoints are rate limited, sessions and single-use challenges are durable and hashed, and pay-run finalization requires an event from the configured STRK20 pool; remaining drills are named in the table above.
+## Next operational sequence
 
-## Safe release sequence
+1. Verify the managed database backup schedule, retention and latest successful snapshot.
+2. Restore a snapshot into a separate environment with outbound payments and customer notifications disabled. Keep customer data and encryption keys out of public logs and artifacts.
+3. Check account integrity, revoke restored sessions, and reconcile transaction/provider outcomes before enabling retries. Record recovery time and the snapshot's data-loss window.
+4. Complete key recovery/rotation and two-device account recovery exercises.
+5. Run a capped, invited-business pilot with monitored support and reconciliation outcomes before expanding access.
 
-### 1. Establish the public codebase
+A healthy release and the ability to redeploy older code do not establish safe data rollback. Never switch a populated PostgreSQL deployment back to an older file store. See [DATABASE.md](DATABASE.md) for the rollback boundary and the backend [restore drill](https://github.com/Cyano88/kudirail/blob/main/docs/RESTORE_DRILL.md) for coverage and limitations.
 
-- Review the untracked source and create the first commit only when the owner approves.
-- Select a license; do not publish as open source without an explicit choice.
-- Connect the repository to CI and protect the main branch.
-
-### 2. Certify the money path
-
-- Use the smallest safe Mainnet amounts.
-- Use ordinary Starknet wallets for the no-setup public-recipient route, or already registered recipients when certifying the fully private route.
-- Capture only technical evidence: versions, count, simulation result, transaction hash, and final status.
-- Never place worker names, wallet secrets, viewing keys, proofs, OTPs, or bank details in issues or public logs.
-
-### 3. Replace local-only infrastructure
-
-- Replace `.data/kudiroll.json` and in-memory sessions before multi-instance deployment.
-- Add schema migrations, encryption, backups, retention, account deletion, rate limiting, telemetry, alerting, and rollback.
-- Configure `NODE_ENV=production`, `HOST=0.0.0.0`, a deployment-assigned `PORT`, a dedicated `STARKNET_RPC_URL`, and server-only secrets.
-- For Railway CLI deployments, set `KUDIROLL_RELEASE_SHA` to the exact reviewed commit. The health endpoint prefers it because `RAILWAY_GIT_COMMIT_SHA` can remain on earlier Git-source metadata during a CLI upload.
-
-### 4. Limited alpha
-
-- Start with invited businesses and capped transaction sizes.
-- Keep Paycrest live-order creation off until its complete Starknet settlement lifecycle is certified.
-- Track support and reconciliation outcomes before widening access.
-
-### 5. Ecosystem release
-
-- Publish the integration and security documentation.
-- Produce a short wallet-to-pay-run demo with sanitized recipients.
-- Approach Starknet wallet, infrastructure, community, and ecosystem-listing channels with verified claims only.
-
-## Live certification record
-
-Use this sanitized template after the run:
-
-```text
-Date/time (UTC):
-Environment: Starknet Mainnet
-Wallet and version:
-STRK20 API versions reported:
-Recipient count:
-Token contract:
-Simulation result:
-Submission transaction hash:
-Final transaction status:
-Application pay-run status:
-Recovery/retry needed:
-```
-
-## Verified payout evidence
-
-- `0x55b6551094333c8d98bbc0560b9569afb11d3951c51c8a47fd8ec7307c068d9` — successful Mainnet private USDC payment to the Paycrest settlement address; verified against the configured STRK20 pool event.
-- `0x7aa7d78827c66c92db23e7864cc3cc01c23eb28955462ac2b458ce750faa76c` — successful separate Mainnet payroll-funding shield into the canonical STRK20 pool.
-- `0x6d75bc4c25d94c769cb12e909e8e9086aa8eb47f381f2daddae158e3b67b44a` — successful atomic Mainnet payroll withdrawal to two distinct Starknet recipients; both 0.01 USDC token legs and five canonical pool events were independently verified at block 14,138,965.
+Paycrest remains under the existing beta arrangement while the provider team works on reconciliation. This audit did not change route availability or submit payments.
