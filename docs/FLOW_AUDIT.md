@@ -67,3 +67,7 @@ Remaining work: cross-workspace deep links, provider reconciliation with Paycres
 ## Production release checkpoint
 
 Verified 2026-09-06T05:29:55.193759+00:00 UTC: KudiRail `d21bc63` and KudiRoll `a29ac40` are deployed and healthy. Railway deployments `b9046353-dbdf-415e-a2a0-04619badfb2b` (backend release label) and `c1812035-56a3-4a3a-92c9-c67273a373d6` (frontend) report SUCCESS. The frontend health endpoint confirms backend dependency `d21bc63`; unauthenticated funding-attempt requests return 401 directly and through the frontend proxy. The beta bank gate remains enabled. The production demo renders Enterprise navigation. No live payment was created.
+
+## Cross-workspace recovery navigation - 6 September 2026
+
+Item 6 now has direct recovery links on payment screens: unresolved payroll and recorded bank orders open the owning workspace History, while pending bank creation opens the owning workspace Bank payout controls. Existing account-wide blockers remain enforced. See [navigation validation](NAVIGATION.md). Provider reconciliation remains with the Paycrest team; no new payment was created for this change.

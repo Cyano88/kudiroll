@@ -1290,6 +1290,13 @@ function ProductShell({
     treasuryAudit: sourceAccountData.treasuryAudit.filter(event => sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, workspace))),
   } : null
   const paycrestOrders = sourcePaycrestOrders.filter(item => inPaymentWorkspace(item, workspace))
+  const otherWorkspace = workspace === 'enterprise' ? 'standard' : 'enterprise'
+  const otherWorkspaceLabel = otherWorkspace === 'enterprise' ? 'Enterprise' : 'Personal payroll'
+  const otherWorkspaceSection = otherWorkspace === 'enterprise' ? 'enterprise' : 'personal'
+  const otherPayrollBlocked = sourceAccountData?.payRuns.some(run => inPaymentWorkspace(run, otherWorkspace) && ['submitting', 'unknown'].includes(run.status))
+  const otherBankCreation = sourceAccountData?.bankOrderAttempt && inPaymentWorkspace(sourceAccountData.bankOrderAttempt, otherWorkspace)
+  const otherBankBlocked = sourcePaycrestOrders.some(order => inPaymentWorkspace(order, otherWorkspace) && !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(order.displayStatus))
+
   function onSection(next: ProductSection, tab: ProductSection = 'overview') {
     if (busy || accountAction) return
     changeSection(next, tab)
@@ -1735,6 +1742,8 @@ function ProductShell({
         <details className="workspaceInfo"><summary>{workspaceLabel} workspace <span>Shared wallet funding</span></summary><p>Teams, pay runs and bank orders stay in this workspace. Wallet balance, funding and payroll controls are shared.{enterprise ? ' Shared staff access and two-person approval are not available yet.' : ' Your existing payroll records are here.'}</p></details>
         <nav className="workspaceNav" aria-label={`${workspaceLabel} navigation`}>{workspaceTabs.map(([id, label]) => <button type="button" key={id} className={(view === id || (id === 'providers' && view === 'lab')) ? 'active' : ''} aria-current={view === id || (id === 'providers' && view === 'lab') ? 'page' : undefined} disabled={Boolean(busy || accountAction)} onClick={() => navigateWorkspace(id)}>{label}</button>)}</nav>
       </div>}
+      {inWorkspace && ['overview', 'payroll', 'providers', 'lab'].includes(view) && otherPayrollBlocked && <div className="inlineError" role="status"><strong>Payroll needs review in {otherWorkspaceLabel}</strong><p>An unresolved submission there prevents another pay run across both workspaces.</p><button className="plainButton" disabled={Boolean(busy || accountAction)} onClick={() => onSection(otherWorkspaceSection, 'activity')}>Open {otherWorkspaceLabel} History</button></div>}
+      {inWorkspace && ['overview', 'providers', 'lab'].includes(view) && (otherBankCreation || otherBankBlocked) && <div className="inlineError" role="status"><strong>Bank payout needs review in {otherWorkspaceLabel}</strong><p>{otherBankCreation ? 'A bank order creation attempt there needs recovery before another order can be created.' : 'An existing bank order there prevents creating another bank order across both workspaces.'}</p><button className="plainButton" disabled={Boolean(busy || accountAction)} onClick={() => onSection(otherWorkspaceSection, otherBankCreation ? 'lab' : 'activity')}>{otherBankCreation ? `Open ${otherWorkspaceLabel} bank recovery` : `Open ${otherWorkspaceLabel} History`}</button></div>}
       <fieldset className="demoContent" disabled={demoMode} aria-label={demoMode ? 'Read-only sample workspace' : undefined}>
       {inWorkspace && view === 'overview' && <div className="dashboardLayout">
         <div className="dashboardMain">
