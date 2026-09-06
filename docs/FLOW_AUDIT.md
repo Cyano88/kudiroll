@@ -62,3 +62,8 @@ Items 1-5 above now have follow-up implementation:
 Validation: full suites passed at 89 KudiRoll / 73 KudiRail tests, followed by passing added authenticated recovery HTTP tests in both repos (90 / 74 total tests). Both builds passed. These tests use temporary files and mocked provider responses; the PostgreSQL implementation uses its existing transaction-scoped advisory lock, but no multi-replica production fault injection was performed. No real wallet transaction or provider order was created.
 
 Remaining work: cross-workspace deep links, provider reconciliation with Paycrest, organization roles and component simplification remain separate. The funding receipt is public tracking metadata; attaching it is not itself onchain finality or proof of a private note. The existing chain maturity checks remain distinct. Deploy the backend before the frontend and preserve optional attempt fields on rollback.
+
+
+## Production release checkpoint
+
+Verified 2026-09-06T05:29:55.193759+00:00 UTC: KudiRail `d21bc63` and KudiRoll `a29ac40` are deployed and healthy. Railway deployments `b9046353-dbdf-415e-a2a0-04619badfb2b` (backend release label) and `c1812035-56a3-4a3a-92c9-c67273a373d6` (frontend) report SUCCESS. The frontend health endpoint confirms backend dependency `d21bc63`; unauthenticated funding-attempt requests return 401 directly and through the frontend proxy. The beta bank gate remains enabled. The production demo renders Enterprise navigation. No live payment was created.
