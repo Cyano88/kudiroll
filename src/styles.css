@@ -1223,3 +1223,10 @@ html[data-theme='dark'] .demoExit { color: #c6ddce; border-color: #364039; backg
   .historyMeta.payrollActions > strong, .historyMeta.payrollActions > span { display: none; }
   .historyMeta.payrollActions button { min-height: 44px; padding: 10px 12px; }
 }
+
+.enterpriseHeader { display: grid; gap: 16px; margin-bottom: 20px; }
+.enterpriseNav { display: flex; flex-wrap: wrap; gap: 8px; }
+.enterpriseNav button { min-height: 44px; padding: 10px 16px; border-radius: 12px; }
+.enterpriseNav button.active { outline: 2px solid currentColor; outline-offset: -2px; }
+.payoutMode.enterprisePrivateMode { grid-template-columns: 1fr; }
+@media (max-width: 600px) { .enterpriseNav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .enterpriseNav button { min-width: 0; white-space: normal; } }

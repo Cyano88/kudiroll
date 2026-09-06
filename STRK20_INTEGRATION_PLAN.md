@@ -355,3 +355,20 @@ Verification: clean locked installs passed; KudiRail 61/61 tests and typecheck p
 ### Phase 7D audit follow-up - locally verified 2026-09-05
 
 Owner requested "audit and go". The code audit, dependency remediation, and synthetic browser export checkpoint are complete; see `docs/EVIDENCE_AUDIT.md`. KudiRail now passes 65 tests and KudiRoll 83; both builds and clean installs pass, and both dependency audits are clear after the exact qs 6.16.0 override. The production build still reports the existing module-federation eval warning. Mobile export actions were found hidden during visual review and fixed, then an actual mobile download succeeded. Recorded pool evidence replaces prose inference; unaccepted receipts cannot establish finality; known payment timing survives temporary RPC outages. Deployment and real wallet/provider certification are still unverified and are not implied by this local checkpoint.
+
+
+## Enterprise workspace - phase 1, 6 September 2026
+
+Authorized scope: separate Enterprise tab, USDC-to-USDC private payroll and USDC-to-Naira bank payout access. Reuse the existing wallet API and signing flow; no new wallet methods, dependencies, Cairo contracts, keys or proving service.
+
+Audit: both account stores bind records to one wallet. KudiRail owns durable bank reconciliation; the local KudiRoll fallback does not. Shared employees/roles need a separate membership and authorization design, not merely new UI labels. Existing reserve and pause controls are account-wide, not separate treasury custody.
+
+Build: add immutable workspace attribution to teams, runs and KudiRail bank orders; derive run scope from the saved team and reject scope mismatches and Enterprise public withdrawals. Preserve legacy records and hashes. In src/App.tsx add Enterprise navigation with scoped Teams, Private payroll, Bank payout and History views using existing handlers. Preserve account-wide unknown-payment blocks and wallet approval. Naira remains an unshield-to-provider flow: onchain withdrawal amount/address and provider bank information are visible. Only registered-wallet USDC transfers have private recipients and amounts.
+
+Validation: scope/idempotency/privacy tests in both stores; bank-order attribution tests in KudiRail; typecheck, existing suites, build and synthetic browser checks. No real payment required.
+
+Next phase: organization identity and membership, independent preparer/approver sessions, approval tied to immutable intent, revocation and tenant-isolation tests. Shared staff permissions and two-person approval are not available in phase 1.
+
+Freshness check: Wallet API stable 0.10.3; 0.10.4-rc.1 is in flight. Discovery next 6.0.4 and wallet-standard next 6.0.5 differ from old skill pins; the app retains its tested 10.7.0 / 6.0.4 / 0.10.3 dependencies. No new wallet API method or shadow-account route is introduced.
+
+Phase 1 implementation complete locally: see docs/ENTERPRISE.md for scope, tests and rollout order. Live Enterprise wallet approval and deployment have not been performed. Shared-role authorization remains phase 2.

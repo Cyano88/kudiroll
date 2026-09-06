@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { inPaymentWorkspace, type PaymentWorkspace } from './payment-workspace'
 import {
   ArrowRightIcon,
   ArrowPathIcon,
@@ -56,6 +57,7 @@ type PublicProbe = {
 type Institution = { code: string; name: string; type?: string }
 type VerifiedAccount = { accountName: string; fingerprint: string }
 type Phase0Order = {
+  workspace?: PaymentWorkspace
   id: string
   reference: string
   amountNgn: string
@@ -79,14 +81,14 @@ type Phase0Order = {
 type PaycrestOrderSummary = Phase0Order
 type ConnectedWallet = WalletAccountV6
 type SavedWorker = { id: string; name: string; walletAddress: string; defaultAmountUsdc: string; createdAt: string; updatedAt: string }
-type SavedTeam = { id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
+type SavedTeam = { workspace?: PaymentWorkspace; id: string; name: string; description: string; workers: SavedWorker[]; createdAt: string; updatedAt: string }
 type SavedPayRunItem = { id: string; workerId: string; workerName: string; walletAddress: string; amountUsdc: string; status: string }
-type SavedPayRun = { id: string; teamId: string; teamName: string; settlementMode?: 'public-wallet' | 'private'; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
+type SavedPayRun = { workspace?: PaymentWorkspace; id: string; teamId: string; teamName: string; settlementMode?: 'public-wallet' | 'private'; status: string; totalUsdc: string; items: SavedPayRunItem[]; transactionHash: string; submissionAttemptedAt: string; finalityCheckedAt: string; acceptedBlockNumber: number | null; finalityMessage: string; createdAt: string; updatedAt: string }
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
 type PayrollPolicy = { version: number; reserveUsdc: string; maxPayRunUsdc: string; payoutsPaused: boolean; updatedAt: string }
 type TreasuryAuditEvent = { id: string; type: string; subjectId: string; summary: string; createdAt: string; previousHash: string; eventHash: string }
 type AccountData = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
-type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab'
+type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab' | 'enterprise'
 type Theme = 'light' | 'dark'
 
 function readableError(reason: unknown) {
@@ -144,7 +146,7 @@ export function App() {
   const [section, setSection] = useState<ProductSection>(() => {
     if (!['127.0.0.1', 'localhost'].includes(window.location.hostname)) return 'overview'
     const requested = new URLSearchParams(window.location.search).get('section') as ProductSection | null
-    return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab'].includes(requested) ? requested : 'overview'
+    return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab', 'enterprise'].includes(requested) ? requested : 'overview'
   })
   const previewMode = ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section'))
   const [enteredApp, setEnteredApp] = useState(previewMode || demoMode)
@@ -257,7 +259,7 @@ export function App() {
 
   useEffect(() => {
     if (demoMode) return
-    if (section === 'lab') {
+    if (section === 'lab' || section === 'enterprise' || section === 'providers') {
       void localJson('/api/phase0/health').then(data => {
         const configured = data.paycrest?.apiConfigured === true
         setPaycrestConfigured(configured)
@@ -272,7 +274,7 @@ export function App() {
         setLiveOrdersEnabled(false)
       })
     }
-    if (enteredApp && accountData && (section === 'overview' || section === 'activity' || section === 'lab')) void loadPaycrestOrders()
+    if (enteredApp && accountData && (section === 'overview' || section === 'activity' || section === 'lab' || section === 'enterprise')) void loadPaycrestOrders()
   }, [section, enteredApp, accountData?.walletAddress])
 
   useEffect(() => {
@@ -340,21 +342,29 @@ export function App() {
     }
   }
 
+  const bankContext = useRef('')
+  bankContext.current = `${accountData?.walletAddress || ''}:${section === 'enterprise' ? 'enterprise' : 'standard'}`
+
   async function loadPaycrestOrders() {
+    const requestContext = bankContext.current
+    const workspace: PaymentWorkspace = section === 'enterprise' ? 'enterprise' : 'standard'
     setOrderHistoryError('')
     try {
       const data = await localJson('/api/phase0/paycrest/orders')
+      if (bankContext.current !== requestContext) return
       setPaycrestConfigured(data.configured !== false)
       const orders = Array.isArray(data.orders) ? data.orders as PaycrestOrderSummary[] : []
       setPaycrestOrders(orders)
       setOrder(current => {
-        const refreshed = current ? orders.find(item => item.id === current.id) : null
-        const active = refreshed || (!current ? orders.find(item => !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(item.displayStatus)) : null)
+        const scopedOrders = orders.filter(item => inPaymentWorkspace(item, workspace))
+        const scopedCurrent = current && inPaymentWorkspace(current, workspace) ? current : null
+        const refreshed = scopedCurrent ? scopedOrders.find(item => item.id === scopedCurrent.id) : null
+        const active = refreshed || (!scopedCurrent ? scopedOrders.find(item => !['completed', 'refunded', 'payment-failed', 'payment-window-closed'].includes(item.displayStatus)) : null)
         if (active?.transactionHash) {
           setSimulationState('submitted')
           setSimulationMessage(active.chainMessage || active.reconciliationReason || 'Payment submitted. KudiRail is tracking Starknet and Paycrest evidence.')
         }
-        return active || current
+        return active || scopedCurrent
       })
     } catch (error) {
       setOrderHistoryError(readableError(error))
@@ -509,7 +519,7 @@ export function App() {
       prfSecret = extracted.prfSecret
       const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
       setAccountData(result.account)
-      alert(prfSecret ? 'Passkey created and verified for private-wallet recovery.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
+      alert(prfSecret ? 'Passkey created for sign-in with PRF support. This does not back up or recover your Ready wallet.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
       return true
     } catch (error) {
       alert(`Could not create the passkey. ${readableError(error)}`)
@@ -617,6 +627,17 @@ export function App() {
     setAccountData(null)
     setTreasuryReadiness(null)
     setTreasuryError('')
+    setPaycrestOrders([])
+    setOrderHistoryError('')
+    setBankCode('')
+    setAccountIdentifier('')
+    setVerifiedAccount(null)
+    setAmountNgn('')
+    setShieldState('idle')
+    setShieldTransactionHash('')
+    setShieldMessage('')
+    setPendingEmailLink(false)
+    setEmailCode('')
     resetOrder()
     setEnteredApp(false)
     setSessionStatus('signed-out')
@@ -746,14 +767,16 @@ export function App() {
       const data = await localJson('/api/phase0/paycrest/order', {
         method: 'POST',
         body: JSON.stringify({
+          workspace: section === 'enterprise' ? 'enterprise' : 'standard',
           amountNgn,
           institution: bankCode,
           accountIdentifier,
           refundAddress: walletAddress,
-          memo: 'KudiRoll payout',
+          memo: section === 'enterprise' ? 'KudiRoll Enterprise payout' : 'KudiRoll payout',
         }),
       }, 1)
       const next = data.order as Phase0Order
+      if (section === 'enterprise' && next.workspace !== 'enterprise') throw new Error('The backend created an order without Enterprise attribution. Do not pay it; reconcile the order before trying again.')
       setOrder(next)
       void loadPaycrestOrders()
       setNow(Date.now())
@@ -880,10 +903,11 @@ export function App() {
 
   const paycrestPilot = <div className="sectionStack paycrestPilot">
     <section className="panel sectionIntro">
-      <div><span className="panelKicker">Bank payout</span><h2>Pay a Nigerian bank account</h2><p>Verify the recipient, check the current rate, and review the exact private USDC payment before Ready asks for approval.</p></div>
-      <span className={`statePill ${liveOrdersEnabled ? 'safe' : 'neutral'}`}>{liveOrdersEnabled ? 'Live' : 'Unavailable'}</span>
+      <div><span className="panelKicker">Bank payout</span><h2>Pay a Nigerian bank account</h2><p>Pay from shielded USDC. The withdrawal address and amount are public; Paycrest and the bank receive the beneficiary details.</p></div>
+      <span className="statePill neutral">{liveOrdersEnabled ? 'Beta' : 'Unavailable'}</span>
     </section>
 
+    <div className="routeNotice"><strong>Bank settlement beta</strong><span>Onchain funding is verified. Deposit detection and bank delivery remain under validation with Paycrest; delays may occur and no completion time is confirmed. Check an existing payment before sending another.</span></div>
     <section className="pilotReadiness">
       <article><span>Paycrest quote</span><strong>{publicProbe?.quote ? `₦${publicProbe.quote.rate} / USDC` : 'Not checked'}</strong><button className="plainButton" onClick={probePaycrest} disabled={Boolean(busy)}>{busy === 'paycrest' ? 'Checking…' : 'Refresh quote'}</button></article>
       <article><span>Private balance</span><strong>{privateBalanceUsdc === null ? 'Not checked' : `${privateBalanceUsdc} USDC`}</strong><button className="plainButton" onClick={checkBalance} disabled={Boolean(busy)}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button></article>
@@ -922,14 +946,21 @@ export function App() {
     {treasuryError && <div className="inlineError">{treasuryError}</div>}
     <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
     {shieldState !== 'idle' && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
-    {shieldState === 'passed' && <div className="shieldApproval"><span>Ready X will request the required USDC approvals. Cancelling sends nothing.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
+    {shieldState === 'passed' && <div className="shieldApproval"><span>Ready X may request separate token approval and deposit transactions. Check wallet activity if you cancel partway through.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
 
   return <ProductShell
+    key={`${accountData?.walletAddress ?? 'signed-out'}:${section === 'enterprise' ? 'enterprise' : 'standard'}`}
     demoMode={demoMode}
     theme={theme}
     section={section}
-    onSection={setSection}
+    onSection={next => {
+      if (busy) return
+      if ((section === 'enterprise') !== (next === 'enterprise')) {
+        resetOrder(); setBankCode(''); setAccountIdentifier(''); setVerifiedAccount(null); setAmountNgn('')
+      }
+      setSection(next)
+    }}
     wallet={wallet}
     walletAddress={walletAddress}
     walletVersions={walletVersions}
@@ -1053,21 +1084,21 @@ function ProductShell({
   demoMode,
   theme,
   section,
-  onSection,
+  onSection: changeSection,
   wallet,
   walletAddress,
   walletVersions,
   privateBalance,
   privateBalanceUsdc,
   busy,
-  paycrestOrders,
+  paycrestOrders: sourcePaycrestOrders,
   paycrestConfigured,
   liveOrdersEnabled,
   orderHistoryError,
   paycrestPilot,
   shieldPanel,
   treasuryReadiness,
-  accountData,
+  accountData: sourceAccountData,
   emailDeliveryConfigured,
   onMutateAccount,
   onRefreshOrders,
@@ -1116,6 +1147,28 @@ function ProductShell({
   onRevokePasskey: (credentialId: string) => void
   onToggleTheme: () => void
 }) {
+  const enterprise = section === 'enterprise'
+  const workspace: PaymentWorkspace = enterprise ? 'enterprise' : 'standard'
+  const [enterpriseView, setEnterpriseView] = useState<ProductSection>('overview')
+  const view = enterprise ? enterpriseView : section
+  const accountData = sourceAccountData ? {
+    ...sourceAccountData,
+    teams: sourceAccountData.teams.filter(item => inPaymentWorkspace(item, workspace)),
+    payRuns: sourceAccountData.payRuns.filter(item => inPaymentWorkspace(item, workspace)),
+    treasuryAudit: sourceAccountData.treasuryAudit.filter(event => enterprise
+      ? sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, 'enterprise'))
+      : !sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, 'enterprise'))),
+  } : null
+  const paycrestOrders = sourcePaycrestOrders.filter(item => inPaymentWorkspace(item, workspace))
+  function onSection(next: ProductSection) {
+    if (busy || accountAction) return
+    changeSection(next)
+  }
+  function navigateWorkspace(next: ProductSection) {
+    if (busy || accountAction) return
+    if (enterprise && ['overview', 'workers', 'payroll', 'activity', 'providers', 'lab'].includes(next)) setEnterpriseView(next)
+    else onSection(next)
+  }
   const prfPasskeyCount = accountData?.passkeys.filter(passkey => passkey.prfCapable).length ?? 0
   const [teamName, setTeamName] = useState('')
   const [teamDescription, setTeamDescription] = useState('')
@@ -1126,7 +1179,7 @@ function ProductShell({
   const [workerError, setWorkerError] = useState('')
   const [draftNotice, setDraftNotice] = useState('')
   const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({})
-  const [settlementMode, setSettlementMode] = useState<'public-wallet' | 'private'>('public-wallet')
+  const [settlementMode, setSettlementMode] = useState<'public-wallet' | 'private'>(enterprise ? 'private' : 'public-wallet')
   const [selectedWorkers, setSelectedWorkers] = useState<Record<string, boolean>>({})
   const [accountAction, setAccountAction] = useState('')
   const [activePayRun, setActivePayRun] = useState<SavedPayRun | null>(null)
@@ -1147,6 +1200,7 @@ function ProductShell({
     { id: 'payroll', label: 'Pay run', icon: 'wallet' },
     { id: 'activity', label: 'History', icon: 'activity' },
     { id: 'providers', label: 'Payout methods', icon: 'route' },
+    { id: 'enterprise', label: 'Enterprise', icon: 'building' },
   ]
   const teams = accountData?.teams ?? []
   const profileComplete = Boolean(accountData?.profile.ownerName && accountData?.profile.businessName)
@@ -1163,7 +1217,7 @@ function ProductShell({
   const availableAfterReserve = privateBalanceUsdc === null ? null : Math.max(0, privateBalanceUsdc - protectedReserve)
   const pageTitle: Record<ProductSection, string> = {
     overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
-    providers: 'Payout methods', settings: 'Business profile', lab: 'Bank payout',
+    providers: 'Payout methods', settings: 'Business profile', lab: 'Bank payout', enterprise: 'Enterprise',
   }
 
   useEffect(() => {
@@ -1262,7 +1316,7 @@ function ProductShell({
     if (teamName.trim().length < 2) return setWorkerError('Enter a team name.')
     setAccountAction('team')
     try {
-      await onMutateAccount('/api/account/teams', { method: 'POST', body: JSON.stringify({ name: teamName, description: teamDescription }) })
+      await onMutateAccount('/api/account/teams', { method: 'POST', body: JSON.stringify({ name: teamName, description: teamDescription, workspace }) })
       setTeamName('')
       setTeamDescription('')
     } catch (error) { setWorkerError(readableError(error)) }
@@ -1285,7 +1339,16 @@ function ProductShell({
     finally { setAccountAction('') }
   }
 
+  function clearDraftReview() {
+    setActivePayRun(null)
+    setActiveExecutionManifest(null)
+    setBatchState('idle')
+    setBatchMessage('')
+    setDraftNotice('')
+  }
+
   function updateAmount(id: string, value: string) {
+    clearDraftReview()
     const clean = value.replace(/[^\d.]/g, '')
     setDraftAmounts(current => ({ ...current, [id]: clean }))
     setDraftNotice('')
@@ -1295,7 +1358,7 @@ function ProductShell({
     if (!wallet) return setDraftNotice('Connect your wallet before previewing this pay run.')
     if (!supportsPrivatePayroll) return setDraftNotice('This wallet can manage your KudiRoll account, but private payroll requires Ready X with STRK20 API 0.10.3.')
     if (!selectedTeam) return setDraftNotice('Select a saved team first.')
-    if (accountData?.payRuns.some(run => run.status === 'submitting' || run.status === 'unknown')) return setDraftNotice('Resolve the existing unknown payroll submission in History before creating another pay run.')
+    if (sourceAccountData?.payRuns.some(run => run.status === 'submitting' || run.status === 'unknown')) return setDraftNotice('Resolve the existing unknown payroll submission in History before creating another pay run.')
     if (!selectedItems.length || selectedItems.some(worker => !Number(draftAmounts[worker.id] || worker.defaultAmountUsdc))) return setDraftNotice('Select workers and enter an amount greater than zero for each person.')
     if (payrollPolicy.payoutsPaused) return setDraftNotice('Payroll payouts are paused in Payroll controls.')
     if (maximumPayRun > 0 && totalDraft > maximumPayRun) return setDraftNotice(`This total exceeds your ${payrollPolicy.maxPayRunUsdc} USDC pay-run limit.`)
@@ -1303,7 +1366,8 @@ function ProductShell({
     if (availableAfterReserve !== null && totalDraft > availableAfterReserve) return setDraftNotice(`This total would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('payrun')
     try {
-      const result = await createRailPayRun(onMutateAccount, { teamId: selectedTeam.id, settlementMode, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
+      const result = await createRailPayRun(onMutateAccount, { workspace, teamId: selectedTeam.id, settlementMode: enterprise ? 'private' : settlementMode, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
+      if (enterprise && (result.payRun?.workspace !== 'enterprise' || result.executionManifest?.workspace !== 'enterprise' || result.executionManifest?.settlementMode !== 'private')) throw new Error('The backend does not support Enterprise private payroll yet. No payment was sent.')
       setActivePayRun(result.payRun)
       setActiveExecutionManifest(result.executionManifest)
       setBatchState('idle')
@@ -1339,7 +1403,9 @@ function ProductShell({
       setBatchMessage(/USER_REFUSED|USER_REJECTED|rejected by user|cancelled/i.test(message)
         ? 'Ready approval was cancelled. No payment was sent.'
         : privateMode
-        ? 'This fully private batch could not be prepared. Every recipient must first enable private transfers in a compatible wallet. No payment was sent.'
+        ? /NOT_REGISTERED|recipient.*register/i.test(message)
+          ? 'Ready reports an unregistered recipient. Enable private transfers in the recipient wallet, then check again. No payment was sent.'
+          : `Ready could not prepare this private batch: ${privacyActionError(error)} No payment was sent.`
         : /INSUFFICIENT|NOT ENOUGH|BALANCE.*LOW/i.test(message)
           ? 'The connected wallet private balance cannot cover this payout and its current pool fees. Reduce the total or add funds. No payment was sent.'
           : 'Ready could not prepare this wallet payout. No payment was sent; check Ready and try again.')
@@ -1357,17 +1423,21 @@ function ProductShell({
     if (maximumPayRun > 0 && Number(activePayRun.totalUsdc) > maximumPayRun) return setBatchMessage(`This pay run exceeds the ${payrollPolicy.maxPayRunUsdc} USDC organization limit.`)
     if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('submit-batch')
+    let walletInvoked = false
+    let submissionAuthorized = false
     try {
       const freshBalance = await onReadBalance()
       if (freshBalance === null) throw new Error('Could not confirm the current private balance. Check the balance and approve again.')
       const reviewedReserve = Number(activeExecutionManifest.policy.reserveUsdc)
       if (Number(activePayRun.totalUsdc) > Math.max(0, freshBalance - reviewedReserve)) throw new Error(`This pay run would use the protected ${activeExecutionManifest.policy.reserveUsdc} USDC reserve.`)
       const authorization = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting', expectedPolicyVersion: activeExecutionManifest.policy.version })
+      submissionAuthorized = true
       const authorizedManifest = authorization.executionManifest as PayRunExecutionManifest | undefined
       if (!authorizedManifest || authorizedManifest.snapshotHash !== activeExecutionManifest.snapshotHash || authorizedManifest.authorizationHash !== activeExecutionManifest.authorizationHash) throw new Error('Payroll controls changed after this batch was checked. Check the batch again before approval.')
       setActivePayRun(authorization.payRun)
       setActiveExecutionManifest(authorizedManifest)
       const items = authorizedManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
+      walletInvoked = true
       const submission = (privateMode ? submitPrivatePayroll(wallet, items) : submitPublicPayroll(wallet, items)).then(async result => {
         const record = result && typeof result === 'object' ? result as Record<string, unknown> : {}
         const transactionHash = String(record.transaction_hash ?? record.transactionHash ?? '')
@@ -1389,7 +1459,7 @@ function ProductShell({
       setBatchMessage(`${privateMode ? 'Private payroll' : 'Wallet payroll'} submitted in one transaction: ${shortAddress(transactionHash)}`)
     } catch (error) {
       const message = readableError(error)
-      if (/outcome is still unknown/i.test(message)) {
+      if (walletInvoked) {
         const recoveredHash = message.match(/transaction hash (0x[0-9a-fA-F]{1,64})/)?.[1] || ''
         const update = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown', ...(recoveredHash ? { transactionHash: recoveredHash } : {}) }).catch(() => null)
         if (update?.payRun) setActivePayRun(update.payRun)
@@ -1400,15 +1470,42 @@ function ProductShell({
           ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
           : 'Ready has not returned a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
       } else if (/controls changed|current private balance|protected .* reserve/i.test(message)) {
+        if (submissionAuthorized) await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
         setBatchState('failed')
         setBatchMessage(`${message} No wallet transaction was opened.`)
       } else {
-        await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
-        setActivePayRun(current => current ? { ...current, status: 'failed' } : current)
+        if (submissionAuthorized) {
+          await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
+          setActivePayRun(current => current?.id === activePayRun.id ? { ...current, status: 'failed' } : current)
+        } else onRefreshHistory()
         setBatchState('failed')
         setBatchMessage(`Payroll was not submitted: ${message}`)
       }
     } finally { setAccountAction('') }
+  }
+
+  async function resumePayRun(payRunId: string) {
+    if (accountAction || busy) return
+    const run = accountData?.payRuns.find(item => item.id === payRunId)
+    if (!run || !['draft', 'prepared', 'failed'].includes(run.status)) return
+    setAccountAction(`review-pay-run:${payRunId}`)
+    try {
+      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/execution-manifest`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Could not load the saved pay run.')
+      if (data.executionManifest?.payRunId !== run.id || (enterprise && data.executionManifest.workspace !== 'enterprise')) throw new Error('Saved pay run does not match this workspace.')
+      setSelectedTeamId(run.teamId)
+      setSettlementMode(run.settlementMode ?? data.executionManifest.settlementMode)
+      setDraftAmounts(Object.fromEntries(run.items.map(item => [item.workerId, item.amountUsdc])))
+      setSelectedWorkers(Object.fromEntries((teams.find(team => team.id === run.teamId)?.workers || []).map(worker => [worker.id, run.items.some(item => item.workerId === worker.id)])))
+      setActivePayRun(run)
+      setActiveExecutionManifest(data.executionManifest)
+      setBatchState('idle')
+      setBatchMessage('Review this saved snapshot, then check it again in Ready before approval.')
+      if (enterprise) setEnterpriseView('payroll')
+      else changeSection('payroll')
+    } catch (error) { window.alert(readableError(error)) }
+    finally { setAccountAction('') }
   }
 
   async function verifyPayRun(payRunId: string) {
@@ -1472,12 +1569,26 @@ function ProductShell({
       </header>
 
       {demoMode && <div className="demoBanner"><span>Read-only demo</span><strong>Explore a sample payroll workspace. No wallet is connected and no action can move funds.</strong></div>}
+      {enterprise && <div className="enterpriseHeader">
+        <div className="routeNotice"><strong>Separate Enterprise records</strong><span>Teams and payment history stay in Enterprise. Funding, balance and payroll controls use the same connected wallet. Shared staff access and two-person approval are not available yet.</span></div>
+        <nav className="enterpriseNav" aria-label="Enterprise navigation">{([
+          ['overview', 'Overview'], ['workers', 'Teams'], ['payroll', 'Private payroll'], ['lab', 'Bank payout'], ['activity', 'History'], ['providers', 'Funds & controls'],
+        ] as [ProductSection, string][]).map(([id, label]) => <button type="button" key={id} className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} disabled={Boolean(busy || accountAction)} onClick={() => navigateWorkspace(id)}>{label}</button>)}</nav>
+      </div>}
       <fieldset className="demoContent" disabled={demoMode} aria-label={demoMode ? 'Read-only sample workspace' : undefined}>
-      {section === 'overview' && <div className="dashboardLayout">
+      {enterprise && view === 'overview' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Business payments</span><h2>Enterprise workspace</h2><p>Organize a dedicated team, review its payroll and keep each payment route clear.</p></div><span className="statePill neutral">Wallet owner access</span></section>
+        <div className="providerGrid">
+          <ProviderCard title="USDC to USDC" status="Private transfer" tone="safe" detail="Recipients receive shielded USDC. Private transfers hide recipients and amounts onchain; every recipient needs a compatible registered wallet." action="Prepare private payroll" onAction={() => navigateWorkspace(teams.some(team => team.workers.length) ? 'payroll' : 'workers')} />
+          <ProviderCard title="USDC to Naira" status="Beta" tone="neutral" detail="Pay a Nigerian bank account from shielded USDC. The settlement transfer is public and the provider knows the bank details. Deposit detection and delivery remain under validation." action="Open bank payout" onAction={() => navigateWorkspace('lab')} />
+        </div>
+        <section className="panel"><div className="panelTitle"><div><span>Enterprise activity</span><h3>{teams.length} {teams.length === 1 ? 'team' : 'teams'} / {accountData?.payRuns.length ?? 0} {(accountData?.payRuns.length ?? 0) === 1 ? 'pay run' : 'pay runs'} / {paycrestOrders.length} {paycrestOrders.length === 1 ? 'bank order' : 'bank orders'}</h3></div><button className="secondary" onClick={() => navigateWorkspace('activity')}>View history</button></div><p>Only records created in Enterprise appear here. Existing payroll remains in the main workspace.</p></section>
+      </div>}
+      {!enterprise && view === 'overview' && <div className="dashboardLayout">
         <div className="dashboardMain">
           <section className="welcomeStrip">
             <div><span>Private payroll</span><h2>Pay your team with confidence</h2><p>Add your team, enter each payment, and review the full pay run before you continue.</p></div>
-            <button onClick={() => onSection('payroll')}>Start a pay run</button>
+            <button onClick={() => navigateWorkspace('payroll')}>Start a pay run</button>
           </section>
 
           <div className="metricGrid">
@@ -1485,13 +1596,13 @@ function ProductShell({
               <div className="metricHead"><span>Available to pay</span><AppIcon name="wallet" /></div>
               <strong>{privateBalanceUsdc === null ? '—' : privateBalanceUsdc.toFixed(6)}</strong>
               <small>{demoMode ? 'Sample private USDC available for payroll' : !wallet ? 'Connect your wallet to see your private USDC' : privateBalanceUsdc === null ? privateBalance : 'Private USDC available for payroll'}</small>
-              <div className="balanceActions">{demoMode ? <span className="demoReadonlyLabel">Sample balance</span> : !wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={() => onSection('providers')}>Add funds</button></>}</div>
+              <div className="balanceActions">{demoMode ? <span className="demoReadonlyLabel">Sample balance</span> : !wallet ? <button onClick={onConnect}>Connect wallet</button> : <><button onClick={onReadBalance}>{busy === 'balance' ? 'Checking…' : 'Check balance'}</button><button className="quiet" onClick={() => navigateWorkspace('providers')}>Add funds</button></>}</div>
             </article>
-            <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => onSection('workers')}>Manage teams</button></article>
+            <article className="metricCard"><span>Saved teams</span><strong>{teams.length}</strong><small>{teams.length ? `${teams.reduce((sum, team) => sum + team.workers.length, 0)} people across ${teams.length} ${teams.length === 1 ? 'team' : 'teams'}` : 'Create your first payroll team'}</small><button onClick={() => navigateWorkspace('workers')}>Manage teams</button></article>
           </div>
 
           <section className="panel recentPanel">
-            <div className="panelTitle"><div><span>Pay runs</span><h3>Recent payments</h3></div><button className="plainButton" onClick={() => onSection('activity')}>View history</button></div>
+            <div className="panelTitle"><div><span>Pay runs</span><h3>Recent payments</h3></div><button className="plainButton" onClick={() => navigateWorkspace('activity')}>View history</button></div>
             {accountData?.payRuns.length ? <div className="orderList">{accountData.payRuns.slice(0, 3).map(run => <PayRunRow key={run.id} run={run} compact />)}</div> : <EmptyState title="No pay runs yet" detail="Create a team, select its workers, and save your first pay run." />}
           </section>
 
@@ -1502,29 +1613,31 @@ function ProductShell({
         </aside>
       </div>}
 
-      {section === 'workers' && <div className="sectionStack">
+      {view === 'workers' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Saved payroll groups</span><h2>Teams</h2><p>Create reusable teams, then save each worker and their default private USDC amount.</p></div><span className="countPill">{teams.length} {teams.length === 1 ? 'team' : 'teams'}</span></section>
         <section className="panel formPanel"><div className="twoFieldGrid"><label>Team name<input value={teamName} onChange={event => setTeamName(event.target.value)} placeholder="e.g. Lagos operations" /></label><label>Description<input value={teamDescription} onChange={event => setTeamDescription(event.target.value)} placeholder="Optional payroll note" /></label></div><div className="formFooter"><span>{walletAddress ? `Saved to ${shortAddress(walletAddress)}.` : 'Saved to your verified wallet account.'}</span><button onClick={createSavedTeam} disabled={Boolean(accountAction)}>{accountAction === 'team' ? 'Creating…' : 'Create team'}</button></div></section>
         {teams.length ? <>
-          <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} onClick={() => { setSelectedTeamId(team.id); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
+          <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} onClick={() => { setSelectedTeamId(team.id); clearDraftReview(); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
           {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" onClick={async () => { if (confirm(`Delete ${selectedTeam.name}? Existing pay-run history will remain.`)) await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }) }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" onClick={() => onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' })}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
         </> : <EmptyState title="Create your first team" detail="Teams keep worker details separate and reusable for future pay runs." />}
       </div>}
 
-      {section === 'payroll' && <div className="sectionStack">
-        <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); setDraftNotice('') }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
-        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Payroll funds ready' : 'Payroll funds not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the connected wallet balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => onSection('providers')}>Manage funds</button></div>
+      {view === 'payroll' && <div className="sectionStack">
+        <section className="panel sectionIntro"><div><span className="panelKicker">New payroll</span><h2>Create a pay run</h2><p>Select a saved team, choose who gets paid, and review one combined total.</p></div>{teams.length > 0 && <select className="teamSelect" value={selectedTeam?.id || ''} onChange={event => { setSelectedTeamId(event.target.value); clearDraftReview() }}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}</section>
+        <div className={'treasuryGate ' + (treasuryReady ? 'ready' : 'waiting')}><div><strong>{treasuryReady ? 'Payroll funds ready' : 'Payroll funds not ready'}</strong><span>{hasExistingSpendableBalance ? 'Ready confirmed from the connected wallet balance you deliberately checked.' : treasuryReadiness?.message || 'Shield USDC, wait for finality and 10 blocks, or check an existing private balance.'}</span></div><button className="plainButton" onClick={() => navigateWorkspace('providers')}>Manage funds</button></div>
         <section className="panel payrollComposer">
           {selectedTeam?.workers.length ? <>
             <div className="previewBanner"><strong>Draft pay run</strong><span>Saving this draft does not move money or open Ready.</span></div>
-            <div className="payoutMode" aria-label="Payroll privacy">
-              <button className={settlementMode === 'public-wallet' ? 'active' : ''} onClick={() => { setSettlementMode('public-wallet'); setActivePayRun(null); setActiveExecutionManifest(null); setDraftNotice('') }}><strong>Pay any Starknet wallet</strong><span>No recipient setup. Recipient addresses and amounts are public.</span></button>
+            <div className={`payoutMode ${enterprise ? 'enterprisePrivateMode' : ''}`} aria-label="Payroll privacy">
+              {!enterprise && <button className={settlementMode === 'public-wallet' ? 'active' : ''} onClick={() => { setSettlementMode('public-wallet'); setActivePayRun(null); setActiveExecutionManifest(null); setDraftNotice('') }}><strong>Pay any Starknet wallet</strong><span>No recipient setup. Recipient addresses and amounts are public.</span></button>}
               <button className={settlementMode === 'private' ? 'active' : ''} onClick={() => { setSettlementMode('private'); setActivePayRun(null); setActiveExecutionManifest(null); setDraftNotice('') }}><strong>Fully private</strong><span>Hides recipients and amounts. Every recipient must already support private transfers.</span></button>
             </div>
-            <div className="composerHead"><div><span>{selectedTeam.name}</span><strong>{totalDraft.toFixed(6)} USDC</strong></div><button className="plainButton" onClick={() => setSelectedWorkers(Object.fromEntries(selectedTeam.workers.map(worker => [worker.id, selectedItems.length !== selectedTeam.workers.length])))}>{selectedItems.length === selectedTeam.workers.length ? 'Clear selection' : 'Select everyone'}</button></div>
-            <div className="payrollRows">{selectedTeam.workers.map(worker => <div className={`payrollRow ${selectedWorkers[worker.id] === false ? 'excluded' : ''}`} key={worker.id}><input className="workerCheck" type="checkbox" checked={selectedWorkers[worker.id] !== false} onChange={event => setSelectedWorkers(current => ({ ...current, [worker.id]: event.target.checked }))} aria-label={`Include ${worker.name}`} /><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><label>Amount in USDC<input value={draftAmounts[worker.id] ?? worker.defaultAmountUsdc} onChange={event => updateAmount(worker.id, event.target.value)} inputMode="decimal" placeholder="0.00" disabled={selectedWorkers[worker.id] === false} /></label></div>)}</div>
+            <div className="composerHead"><div><span>{selectedTeam.name}</span><strong>{totalDraft.toFixed(6)} USDC</strong></div><button className="plainButton" onClick={() => { clearDraftReview(); setSelectedWorkers(Object.fromEntries(selectedTeam.workers.map(worker => [worker.id, selectedItems.length !== selectedTeam.workers.length]))) }}>{selectedItems.length === selectedTeam.workers.length ? 'Clear selection' : 'Select everyone'}</button></div>
+            <div className="payrollRows">{selectedTeam.workers.map(worker => <div className={`payrollRow ${selectedWorkers[worker.id] === false ? 'excluded' : ''}`} key={worker.id}><input className="workerCheck" type="checkbox" checked={selectedWorkers[worker.id] !== false} onChange={event => { clearDraftReview(); setSelectedWorkers(current => ({ ...current, [worker.id]: event.target.checked })) }} aria-label={`Include ${worker.name}`} /><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><label>Amount in USDC<input value={draftAmounts[worker.id] ?? worker.defaultAmountUsdc} onChange={event => updateAmount(worker.id, event.target.value)} inputMode="decimal" placeholder="0.00" disabled={selectedWorkers[worker.id] === false} /></label></div>)}</div>
             <div className="composerFooter"><div><span>{selectedItems.length} of {selectedTeam.workers.length} selected · Available after reserve</span><strong>{availableAfterReserve === null ? 'Check private balance' : `${availableAfterReserve.toFixed(6).replace(/\.?0+$/, '') || '0'} USDC`}</strong></div><button onClick={prepareDraft} disabled={Boolean(accountAction)}>{accountAction === 'payrun' ? 'Saving…' : 'Save and review pay run'}</button></div>
             {draftNotice && <div className="draftNotice"><AppIcon name="activity" /><span>{draftNotice}</span></div>}
+
+          </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => navigateWorkspace('workers')} />}
             {activePayRun && <section className="batchReview">
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>{activePayRun.settlementMode === 'private' ? 'Fully private batch' : 'Direct wallet payout'}</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
               <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
@@ -1532,30 +1645,29 @@ function ProductShell({
               {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for payroll funds'}</button> : null}
               {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Controls v{activeExecutionManifest?.policy.version ?? payrollPolicy.version} are locked to this review. KudiRoll checks the private balance again before Ready X opens.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Rechecking controls…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
-          </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => onSection('workers')} />}
         </section>
       </div>}
 
-      {section === 'activity' && <div className="sectionStack">
+      {view === 'activity' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked payroll-funding shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
-        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Payroll funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
-        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Shareable evidence</span><h3>Team pay runs</h3></div></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} onExport={exportPayRunEvidence} verifying={accountAction === `verify-pay-run:${run.id}` || accountAction === `resolve-pay-run:${run.id}` || accountAction === `evidence-pay-run:${run.id}`} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => onSection('payroll')} />}
-        {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>Treasury audit trail</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
+        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Shared wallet funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
+        {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Shareable evidence</span><h3>Team pay runs</h3></div></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onReview={resumePayRun} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} onExport={exportPayRunEvidence} verifying={Boolean(accountAction || busy)} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => navigateWorkspace('payroll')} />}
+        {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>{enterprise ? 'Enterprise payroll audit trail' : 'Treasury audit trail'}</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
-        <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => onSection('lab')} />}</section>
+        <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => navigateWorkspace('lab')} />}</section>
       </div>}
 
-      {section === 'providers' && <div className="sectionStack">
+      {view === 'providers' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
         {shieldPanel}
         <section className="panel"><div className="panelTitle"><div><span>Organization policy</span><h3>Payroll controls</h3></div><span className={'statePill ' + (payrollPolicy.payoutsPaused ? 'blocked' : 'safe')}>{payrollPolicy.payoutsPaused ? 'Payouts paused' : 'Active'}</span></div><p className="teamDescription">Protect a minimum wallet balance, cap each pay run, or pause new payroll. The maximum and pause are enforced by KudiRail; the reserve uses the private balance you explicitly share through Ready. These controls do not create separate custody or prevent transactions signed outside KudiRoll.</p><div className="workerForm"><label>Protected reserve<input value={policyForm.reserveUsdc} onChange={event => { setPolicyForm(current => ({ ...current, reserveUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0" /></label><label>Maximum pay run<input value={policyForm.maxPayRunUsdc} onChange={event => { setPolicyForm(current => ({ ...current, maxPayRunUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0 = no limit" /></label><label className="policyToggle"><input type="checkbox" checked={policyForm.payoutsPaused} onChange={event => { setPolicyForm(current => ({ ...current, payoutsPaused: event.target.checked })); setPolicyNotice('') }} />Pause new payouts</label><button onClick={savePayrollPolicy} disabled={Boolean(accountAction)}>{accountAction === 'payroll-policy' ? 'Saving…' : 'Save controls'}</button></div>{policyNotice && <div className="draftNotice"><AppIcon name="building" /><span>{policyNotice}</span></div>}</section>
         <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
-        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Live' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Pay a verified Nigerian bank account from private USDC." action="Open bank payout" onAction={() => onSection('lab')} /></div>
+        <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Beta' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Fund from shielded USDC. Public settlement leg; bank delivery remains in beta." action="Open bank payout" onAction={() => navigateWorkspace('lab')} /></div>
       </div>}
 
-      {section === 'lab' && paycrestPilot}
+      {view === 'lab' && paycrestPilot}
 
-      {section === 'settings' && <div className="sectionStack profileStack">
+      {view === 'settings' && <div className="sectionStack profileStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Business account</span><h2>Business profile</h2><p>Keep the owner and business details associated with this KudiRoll wallet account up to date.</p></div></section>
         <section className="panel profilePanel">
           <div className="panelTitle"><div><span>Profile details</span><h3>Account owner</h3></div>{accountData?.profile.updatedAt && <span className="profileUpdated">Updated {new Date(accountData.profile.updatedAt).toLocaleDateString()}</span>}</div>
@@ -1595,10 +1707,11 @@ function ProductShell({
       <section id="mobile-more-menu" className="mobileMoreSheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
         <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu"><XMarkIcon aria-hidden="true" /></button></div>
         <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and Naira bank payouts</small></span><ArrowRightIcon aria-hidden="true" /></button>
+        <button type="button" className={enterprise ? 'active' : ''} onClick={() => { onSection('enterprise'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Enterprise</strong><small>Separate teams and business payments</small></span><ArrowRightIcon aria-hidden="true" /></button>
         <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><ArrowRightIcon aria-hidden="true" /></button>
       </section>
     </div>}
-    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="more" /><span>More</span></button></nav>
+    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || enterprise || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="more" /><span>More</span></button></nav>
   </div>
 }
 
@@ -1718,7 +1831,7 @@ function PaycrestOrderRow({ order, compact = false, busy = '', onReconcile, onEx
   </article>
 }
 
-function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, onExport, verifying = false }: { run: SavedPayRun; compact?: boolean; onVerify?: (payRunId: string) => void; onResolveUnknown?: (payRunId: string) => void; onExport?: (payRunId: string) => void; verifying?: boolean }) {
+function PayRunRow({ run, compact = false, onReview, onVerify, onResolveUnknown, onExport, verifying = false }: { run: SavedPayRun; compact?: boolean; onReview?: (payRunId: string) => void; onVerify?: (payRunId: string) => void; onResolveUnknown?: (payRunId: string) => void; onExport?: (payRunId: string) => void; verifying?: boolean }) {
   const safe = run.status === 'finalized'
   const blocked = ['reverted', 'unknown', 'failed'].includes(run.status)
   const detail = run.finalityMessage || (run.status === 'draft' ? 'Saved · nothing sent' : run.status === 'prepared' ? 'Wallet simulation passed' : run.status === 'submitting' ? 'Waiting for Ready; do not retry' : run.status === 'submitted' ? 'Hash recorded · verify finality' : 'Payroll status')
@@ -1726,7 +1839,7 @@ function PayRunRow({ run, compact = false, onVerify, onResolveUnknown, onExport,
     <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong>{run.transactionHash ? <a href={`https://starkscan.co/tx/${run.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(run.transactionHash)}</a> : <span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span>}</div></div>
     {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>{run.settlementMode === 'private' ? 'Fully private' : 'Direct wallet payout'}</span></div>}
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{run.status}</span><small>{detail}</small></div>
-    {!compact && <div className="historyMeta payrollActions"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}{onExport && <button className="rowAction" onClick={() => onExport(run.id)} disabled={verifying}>{verifying ? 'Preparing...' : 'Export evidence'}</button>}</div>}
+    {!compact && <div className="historyMeta payrollActions"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}{onReview && ['draft', 'prepared', 'failed'].includes(run.status) && <button className="rowAction" onClick={() => onReview(run.id)} disabled={verifying}>Review saved run</button>}{onExport && <button className="rowAction" onClick={() => onExport(run.id)} disabled={verifying}>{verifying ? 'Preparing...' : 'Export evidence'}</button>}</div>}
   </article>
 }
 
