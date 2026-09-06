@@ -1,3 +1,5 @@
+import { WorkerCsvImport } from './WorkerCsvImport'
+import { validateWorkerRows, type WorkerInput } from './worker-import'
 import { useEffect, useRef, useState } from 'react'
 import { inPaymentWorkspace, type PaymentWorkspace } from './payment-workspace'
 import {
@@ -1476,6 +1478,8 @@ function ProductShell({
     if (workerName.trim().length < 2) return setWorkerError('Enter this person’s name.')
     if (!isStarknetAddress(workerAddress)) return setWorkerError('Enter a valid Starknet wallet address beginning with 0x.')
     if (!/^\d+(?:\.\d{1,6})?$/.test(workerAmount) || Number(workerAmount) <= 0) return setWorkerError('Enter a default USDC amount.')
+    const errors = validateWorkerRows([{ name: workerName, walletAddress: workerAddress, defaultAmountUsdc: workerAmount }], selectedTeam.workers)[0]
+    if (errors.length) return setWorkerError(errors.join(' '))
     setAccountAction('worker')
     try {
       await onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers`, { method: 'POST', body: JSON.stringify({ name: workerName, walletAddress: workerAddress, defaultAmountUsdc: workerAmount }) })
@@ -1484,6 +1488,15 @@ function ProductShell({
       setWorkerAmount('')
     } catch (error) { setWorkerError(readableError(error)) }
     finally { setAccountAction('') }
+  }
+
+  async function importWorkers(rows: WorkerInput[]) {
+    if (!selectedTeam || accountAction || busy) throw new Error('Select a team and wait for the current action to finish.')
+    setAccountAction('worker-import')
+    try {
+      await onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/import`, { method: 'POST', body: JSON.stringify({ workers: rows }) })
+      clearDraftReview()
+    } finally { setAccountAction('') }
   }
 
   function clearDraftReview() {
@@ -1778,8 +1791,8 @@ function ProductShell({
         <section className="panel sectionIntro"><div><span className="panelKicker">Saved payroll groups</span><h2>Teams</h2><p>Create reusable teams, then save each worker and their default private USDC amount.</p></div><span className="countPill">{teams.length} {teams.length === 1 ? 'team' : 'teams'}</span></section>
         <section className="panel formPanel"><div className="twoFieldGrid"><label>Team name<input value={teamName} onChange={event => setTeamName(event.target.value)} placeholder="e.g. Lagos operations" /></label><label>Description<input value={teamDescription} onChange={event => setTeamDescription(event.target.value)} placeholder="Optional payroll note" /></label></div><div className="formFooter"><span>{walletAddress ? `Saved to ${shortAddress(walletAddress)}.` : 'Saved to your verified wallet account.'}</span><button onClick={createSavedTeam} disabled={Boolean(accountAction)}>{accountAction === 'team' ? 'Creating…' : 'Create team'}</button></div></section>
         {teams.length ? <>
-          <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} onClick={() => { setSelectedTeamId(team.id); clearDraftReview(); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
-          {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" onClick={async () => { if (confirm(`Delete ${selectedTeam.name}? Existing pay-run history will remain.`)) await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }) }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" onClick={() => onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' })}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
+          <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} disabled={Boolean(accountAction || busy)} onClick={() => { setSelectedTeamId(team.id); clearDraftReview(); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
+          {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" disabled={Boolean(accountAction || busy)} onClick={async () => { if (confirm(`Delete ${selectedTeam.name}? Existing pay-run history will remain.`)) await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }) }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}<WorkerCsvImport key={selectedTeam.id} teamName={selectedTeam.name} existing={selectedTeam.workers} disabled={Boolean(accountAction || busy)} onSave={importWorkers} />{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" onClick={() => onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' })}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
         </> : <EmptyState title="Create your first team" detail="Teams keep worker details separate and reusable for future pay runs." />}
       </div>}
 

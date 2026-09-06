@@ -1262,3 +1262,12 @@ html[data-theme='dark'] .workspaceNav button.active { border-color: #a9d4b9; bac
   .workspaceInfo summary span { display: block; margin-left: 0; }
   .mobileNav button span { font-size: .6rem; }
 }
+
+.workerImport { border-top: 1px solid var(--line, #ddd); margin-top: 24px; padding-top: 16px; }
+.workerImport > label { display: grid; gap: 8px; margin: 16px 0; }
+.workerImport input { width: 100%; min-width: 0; box-sizing: border-box; }
+.importRows { display: grid; gap: 16px; max-height: 520px; overflow-y: auto; margin: 16px 0; }
+.importRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); gap: 12px; border: 1px solid var(--line, #ddd); border-radius: 12px; padding: 12px; min-width: 0; }
+.importRow label { display: grid; gap: 6px; min-width: 0; }
+.importRow .inlineError { grid-column: 1 / -1; }
+@media (max-width: 680px) { .importRow { grid-template-columns: minmax(0, 1fr); } }

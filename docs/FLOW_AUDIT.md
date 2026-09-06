@@ -71,3 +71,7 @@ Verified 2026-09-06T05:29:55.193759+00:00 UTC: KudiRail `d21bc63` and KudiRoll `
 ## Cross-workspace recovery navigation - 6 September 2026
 
 Item 6 now has direct recovery links on payment screens: unresolved payroll and recorded bank orders open the owning workspace History, while pending bank creation opens the owning workspace Bank payout controls. Existing account-wide blockers remain enforced. See [navigation validation](NAVIGATION.md). Provider reconciliation remains with the Paycrest team; no new payment was created for this change.
+
+## Team onboarding - 6 September 2026
+
+Worker entry now rejects equivalent padded wallet addresses in both services. CSV imports offer a template and editable preview and save atomically to the selected team. Existing legacy duplicates are not automatically changed. See [team import and validation](TEAM_IMPORT.md).
