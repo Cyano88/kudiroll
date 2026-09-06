@@ -1230,3 +1230,35 @@ html[data-theme='dark'] .demoExit { color: #c6ddce; border-color: #364039; backg
 .enterpriseNav button.active { outline: 2px solid currentColor; outline-offset: -2px; }
 .payoutMode.enterprisePrivateMode { grid-template-columns: 1fr; }
 @media (max-width: 600px) { .enterpriseNav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .enterpriseNav button { min-width: 0; white-space: normal; } }
+
+
+.workspaceHeader { display: grid; gap: 14px; margin: 16px 0 22px; }
+.workspaceInfo { font-size: .78rem; line-height: 1.6; }
+.workspaceInfo summary { cursor: pointer; font-weight: 700; }
+.workspaceInfo summary span { margin-left: 12px; font-weight: 400; opacity: .75; }
+.workspaceInfo p, .workspaceHint { max-width: 760px; font-size: .78rem; line-height: 1.65; opacity: .8; }
+.workspacePageLabel { display: block; margin-top: 4px; font-size: .72rem; opacity: .75; }
+.workspaceNav { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspaceNav button { min-height: 44px; padding: 10px 16px; border-radius: 10px; border: 1px solid #cad4ce; background: transparent; color: inherit; }
+.workspaceNav button.active { border-color: #20271c; background: #20271c; color: #fff; }
+html[data-theme='dark'] .workspaceNav button { border-color: #46564b; }
+html[data-theme='dark'] .workspaceNav button.active { border-color: #a9d4b9; background: #a9d4b9; color: #13241a; }
+.workspaceCards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.workspaceCard { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 26px; }
+.workspaceCard > svg { width: 30px; height: 30px; }
+.workspaceCard h2, .workspaceCard p { margin: 0; }
+.workspaceCard p, .workspaceCard > span { font-size: .8rem; line-height: 1.6; }
+.workspaceCard > button:not(.plainButton) { margin-top: 0; }
+.workspaceBack { justify-self: start; }
+.sharedFundingHistory > summary { cursor: pointer; font-weight: 700; min-height: 24px; }
+.sharedFundingHistory > .panel { margin-top: 18px; }
+.homeStart { margin-top: 20px; }
+@media (max-width: 980px) { .mobileNav { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .workspaceCards { grid-template-columns: 1fr; }
+  .workspaceNav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspaceNav button { min-width: 0; white-space: normal; }
+  .workspaceNav button:last-child { grid-column: 1 / -1; }
+  .workspaceInfo summary span { display: block; margin-left: 0; }
+  .mobileNav button span { font-size: .6rem; }
+}

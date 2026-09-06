@@ -2,7 +2,7 @@
 
 ## First build
 
-Enterprise is a separate tab with Overview, Teams, Private payroll, Bank payout, History, and Funds & controls. It has its own saved teams, payroll records, and KudiRail bank orders. Existing records without a workspace tag remain in the main workspace. Teams can use the same name in both spaces and cannot be moved between them by editing.
+The primary navigation is Home, Personal payroll, and Enterprise. Both payroll workspaces use Overview, Team, Pay runs, Payout methods, and History. Bank payout, funding and shared payroll controls are reached through Payout methods. It has its own saved teams, payroll records, and KudiRail bank orders. Existing records without a workspace tag remain in Personal payroll. Teams can use the same name in both spaces and cannot be moved between them by editing.
 
 This phase remains wallet-owner operated. Both spaces share the connected wallet, its balance, and existing payroll policy. Enterprise does not create separate custody, staff permissions, or two-person approvals.
 
@@ -11,7 +11,7 @@ This phase remains wallet-owner operated. Both spaces share the connected wallet
 - USDC to USDC: private STRK20 transfers only. Every recipient must be registered through a compatible wallet. The server rejects Enterprise public-wallet payroll. Existing simulation, policy checks, client signing, and unknown-outcome recovery remain in place.
 - USDC to Naira: the existing Paycrest beta, funded by an unshield from the private USDC balance. The settlement address and amount are public and the provider knows bank details. Deposit detection and bank delivery remain under validation. The route is not an end-to-end private bank transfer.
 
-Unknown payroll outcomes and unresolved bank orders block new attempts account-wide, including attempts from another workspace. The local KudiRoll fallback rejects Enterprise bank-order creation because durable bank records are implemented in KudiRail.
+Unknown payroll outcomes and unresolved bank orders block new attempts account-wide, including attempts from another workspace. The local KudiRoll fallback rejects bank-order creation because durable bank records are implemented in KudiRail.
 
 ## API and persistence
 
@@ -30,3 +30,6 @@ Manual review: open Enterprise, create a team, verify it stays out of the main T
 ## Next phase
 
 Define organization membership separately from signing wallets. Add administrator, preparer, approver and auditor roles; prevent self-approval; bind approval to immutable recipients, amounts, route and policy; invalidate approvals on changes; enforce permissions on every API path; test revocation and tenant separation. Bank quote expiry requires fresh approval when the exact provider payment changes. Do not present these roles as implemented until their server authorization and recovery tests pass.
+
+
+Navigation consolidation: Home contains workspace entry cards and scoped payment-attention links. Shared funding history is under Payout methods; workspace History includes only its payroll, payroll audit events and bank orders. Existing standard record tags remain unchanged and require no migration. See NAVIGATION.md.

@@ -89,7 +89,7 @@ type PayrollPolicy = { version: number; reserveUsdc: string; maxPayRunUsdc: stri
 type TreasuryAuditEvent = { id: string; type: string; subjectId: string; summary: string; createdAt: string; previousHash: string; eventHash: string }
 type FundingAttempt = { id: string; amountUsdc: string; createdAt: string }
 type AccountData = { fundingAttempt?: FundingAttempt | null; bankOrderAttempt?: { reference: string; workspace: PaymentWorkspace } | null; walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
-type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab' | 'enterprise'
+type ProductSection = 'personal' | 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab' | 'enterprise'
 type Theme = 'light' | 'dark'
 
 function readableError(reason: unknown) {
@@ -162,7 +162,11 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
   const [section, setSection] = useState<ProductSection>(() => {
     if (!['127.0.0.1', 'localhost'].includes(window.location.hostname)) return 'overview'
     const requested = new URLSearchParams(window.location.search).get('section') as ProductSection | null
-    return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab', 'enterprise'].includes(requested) ? requested : 'overview'
+    return requested && ['overview', 'workers', 'payroll', 'activity', 'providers', 'settings', 'lab', 'enterprise', 'personal'].includes(requested) ? (['workers', 'payroll', 'activity', 'providers', 'lab'].includes(requested) ? 'personal' : requested) : 'overview'
+  })
+  const [workspaceView, setWorkspaceView] = useState<ProductSection>(() => {
+    const requested = ['127.0.0.1', 'localhost'].includes(window.location.hostname) ? new URLSearchParams(window.location.search).get('section') as ProductSection : null
+    return requested && ['workers', 'payroll', 'activity', 'providers', 'lab'].includes(requested) ? requested : 'overview'
   })
   const previewMode = ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (new URLSearchParams(window.location.search).has('preview') || new URLSearchParams(window.location.search).has('section'))
   const [enteredApp, setEnteredApp] = useState(previewMode || demoMode)
@@ -284,7 +288,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
 
   useEffect(() => {
     if (demoMode) return
-    if (section === 'lab' || section === 'enterprise' || section === 'providers') {
+    if (section === 'personal' || section === 'enterprise') {
       void localJson('/api/phase0/health').then(data => {
         const configured = data.paycrest?.apiConfigured === true
         setPaycrestConfigured(configured)
@@ -299,7 +303,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
         setLiveOrdersEnabled(false)
       })
     }
-    if (enteredApp && accountData && (section === 'overview' || section === 'activity' || section === 'lab' || section === 'enterprise')) void loadPaycrestOrders()
+    if (enteredApp && accountData && (section === 'overview' || section === 'personal' || section === 'enterprise')) void loadPaycrestOrders()
   }, [section, enteredApp, accountData?.walletAddress])
 
   useEffect(() => {
@@ -1069,15 +1073,18 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
   </section>
 
   return <ProductShell
-    key={`${accountData?.walletAddress ?? 'signed-out'}:${section === 'enterprise' ? 'enterprise' : 'standard'}`}
+    key={`${accountData?.walletAddress ?? 'signed-out'}:${section}`}
     demoMode={demoMode}
     theme={theme}
     section={section}
-    onSection={next => {
+    workspaceView={workspaceView}
+    onWorkspaceView={setWorkspaceView}
+    onSection={(next, tab = 'overview') => {
       if (busy) return
       if ((section === 'enterprise') !== (next === 'enterprise')) {
         resetOrder(); setBankCode(''); setAccountIdentifier(''); setVerifiedAccount(null); setAmountNgn('')
       }
+      setWorkspaceView(tab)
       setSection(next)
     }}
     wallet={wallet}
@@ -1203,6 +1210,8 @@ function ProductShell({
   demoMode,
   theme,
   section,
+  workspaceView,
+  onWorkspaceView,
   onSection: changeSection,
   wallet,
   walletAddress,
@@ -1236,7 +1245,9 @@ function ProductShell({
   demoMode: boolean
   theme: Theme
   section: ProductSection
-  onSection: (section: ProductSection) => void
+  onSection: (section: ProductSection, tab?: ProductSection) => void
+  workspaceView: ProductSection
+  onWorkspaceView: (view: ProductSection) => void
   wallet: ConnectedWallet | null
   walletAddress: string
   walletVersions: string[]
@@ -1268,25 +1279,25 @@ function ProductShell({
 }) {
   const enterprise = section === 'enterprise'
   const workspace: PaymentWorkspace = enterprise ? 'enterprise' : 'standard'
-  const [enterpriseView, setEnterpriseView] = useState<ProductSection>('overview')
-  const view = enterprise ? enterpriseView : section
+  const inWorkspace = section === 'personal' || enterprise
+  const workspaceLabel = enterprise ? 'Enterprise' : 'Personal payroll'
+  const view = inWorkspace ? workspaceView : section === 'overview' ? 'home' : section
+  useEffect(() => { window.scrollTo(0, 0) }, [view])
   const accountData = sourceAccountData ? {
     ...sourceAccountData,
     teams: sourceAccountData.teams.filter(item => inPaymentWorkspace(item, workspace)),
     payRuns: sourceAccountData.payRuns.filter(item => inPaymentWorkspace(item, workspace)),
-    treasuryAudit: sourceAccountData.treasuryAudit.filter(event => enterprise
-      ? sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, 'enterprise'))
-      : !sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, 'enterprise'))),
+    treasuryAudit: sourceAccountData.treasuryAudit.filter(event => sourceAccountData.payRuns.some(run => run.id === event.subjectId && inPaymentWorkspace(run, workspace))),
   } : null
   const paycrestOrders = sourcePaycrestOrders.filter(item => inPaymentWorkspace(item, workspace))
-  function onSection(next: ProductSection) {
+  function onSection(next: ProductSection, tab: ProductSection = 'overview') {
     if (busy || accountAction) return
-    changeSection(next)
+    changeSection(next, tab)
   }
   function navigateWorkspace(next: ProductSection) {
     if (busy || accountAction) return
-    if (enterprise && ['overview', 'workers', 'payroll', 'activity', 'providers', 'lab'].includes(next)) setEnterpriseView(next)
-    else onSection(next)
+    if (inWorkspace && ['overview', 'workers', 'payroll', 'activity', 'providers', 'lab'].includes(next)) onWorkspaceView(next)
+    else onSection('personal', next)
   }
   const prfPasskeyCount = accountData?.passkeys.filter(passkey => passkey.prfCapable).length ?? 0
   const [teamName, setTeamName] = useState('')
@@ -1315,12 +1326,22 @@ function ProductShell({
 
   const nav: Array<{ id: ProductSection; label: string; icon: IconName }> = [
     { id: 'overview', label: 'Home', icon: 'home' },
-    { id: 'workers', label: 'Team', icon: 'people' },
-    { id: 'payroll', label: 'Pay run', icon: 'wallet' },
-    { id: 'activity', label: 'History', icon: 'activity' },
-    { id: 'providers', label: 'Payout methods', icon: 'route' },
+    { id: 'personal', label: 'Personal payroll', icon: 'people' },
     { id: 'enterprise', label: 'Enterprise', icon: 'building' },
   ]
+  const workspaceTabs: Array<[ProductSection, string]> = [
+    ['overview', 'Overview'], ['workers', 'Team'], ['payroll', 'Pay runs'], ['providers', 'Payout methods'], ['activity', 'History'],
+  ]
+  function summaryFor(scope: PaymentWorkspace) {
+    const runs = sourceAccountData?.payRuns.filter(run => inPaymentWorkspace(run, scope)) ?? []
+    const orders = sourcePaycrestOrders.filter(order => inPaymentWorkspace(order, scope))
+    return {
+      teams: sourceAccountData?.teams.filter(team => inPaymentWorkspace(team, scope)).length ?? 0,
+      runs: runs.length,
+      orders: orders.length,
+      attention: runs.filter(run => ['submitting', 'unknown', 'submitted', 'reverted'].includes(run.status)).length + orders.filter(order => !['completed', 'refunded', 'payment-window-closed'].includes(order.displayStatus)).length,
+    }
+  }
   const teams = accountData?.teams ?? []
   const profileComplete = Boolean(accountData?.profile.ownerName && accountData?.profile.businessName)
   const setupStepsComplete = Number(profileComplete) + Number(Boolean(teams.length)) + Number(teams.some(team => team.workers.length))
@@ -1335,7 +1356,7 @@ function ProductShell({
   const maximumPayRun = Number(payrollPolicy.maxPayRunUsdc || 0)
   const availableAfterReserve = privateBalanceUsdc === null ? null : Math.max(0, privateBalanceUsdc - protectedReserve)
   const pageTitle: Record<ProductSection, string> = {
-    overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
+    personal: 'Personal payroll', overview: 'Home', workers: 'Team', payroll: 'Pay run', activity: 'History',
     providers: 'Payout methods', settings: 'Business profile', lab: 'Bank payout', enterprise: 'Enterprise',
   }
 
@@ -1621,8 +1642,7 @@ function ProductShell({
       setActiveExecutionManifest(data.executionManifest)
       setBatchState('idle')
       setBatchMessage('Review this saved snapshot, then check it again in Ready before approval.')
-      if (enterprise) setEnterpriseView('payroll')
-      else changeSection('payroll')
+      onWorkspaceView('payroll')
     } catch (error) { window.alert(readableError(error)) }
     finally { setAccountAction('') }
   }
@@ -1687,7 +1707,7 @@ function ProductShell({
 
     <section className="productWorkspace">
       <header className="productTopbar">
-        <div><span className="eyebrow">KudiRoll payroll</span><h1>{pageTitle[section]}</h1></div>
+        <div><span className="eyebrow">KudiRoll payroll</span><h1>{pageTitle[section]}</h1>{inWorkspace && <span className="workspacePageLabel">{view === 'lab' ? 'Payout methods / Bank payout' : workspaceTabs.find(([id]) => id === view)?.[1]}</span>}</div>
         <div className="topActions">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           {demoMode ? <a className="demoExit" href="/">Exit demo</a> : !wallet ? <button className="compactButton" onClick={onConnect} disabled={Boolean(busy)}>{busy === 'wallet' ? 'Connecting…' : 'Connect wallet'}</button> : <button className="walletChip" onClick={onReadBalance} title="Check available balance"><span>{shortAddress(walletAddress)}</span><i>{privateBalanceUsdc === null ? 'Check balance' : `${privateBalanceUsdc} USDC`}</i></button>}
@@ -1695,22 +1715,28 @@ function ProductShell({
       </header>
 
       {demoMode && <div className="demoBanner"><span>Read-only demo</span><strong>Explore a sample payroll workspace. No wallet is connected and no action can move funds.</strong></div>}
-      {enterprise && <div className="enterpriseHeader">
-        <div className="routeNotice"><strong>Separate Enterprise records</strong><span>Teams and payment history stay in Enterprise. Funding, balance and payroll controls use the same connected wallet. Shared staff access and two-person approval are not available yet.</span></div>
-        <nav className="enterpriseNav" aria-label="Enterprise navigation">{([
-          ['overview', 'Overview'], ['workers', 'Teams'], ['payroll', 'Private payroll'], ['lab', 'Bank payout'], ['activity', 'History'], ['providers', 'Funds & controls'],
-        ] as [ProductSection, string][]).map(([id, label]) => <button type="button" key={id} className={view === id ? 'active' : ''} aria-current={view === id ? 'page' : undefined} disabled={Boolean(busy || accountAction)} onClick={() => navigateWorkspace(id)}>{label}</button>)}</nav>
+      {section === 'overview' && <div className="sectionStack homeStart">
+        <section className="panel sectionIntro"><div><span className="panelKicker">Your workspaces</span><h2>Where would you like to work?</h2><p>Choose a workspace to manage its team and payments.</p></div></section>
+        <div className="workspaceCards">{(['standard', 'enterprise'] as PaymentWorkspace[]).map(scope => {
+          const summary = summaryFor(scope)
+          const label = scope === 'enterprise' ? 'Enterprise' : 'Personal payroll'
+          const target = scope === 'enterprise' ? 'enterprise' : 'personal'
+          return <section className="panel workspaceCard" key={scope}>
+            <AppIcon name={scope === 'enterprise' ? 'building' : 'people'} /><h2>{label}</h2>
+            <p>{scope === 'enterprise' ? 'Manage your business team and payments.' : 'Manage your personal team and payroll.'}</p>
+            <span>{summary.teams} {summary.teams === 1 ? 'team' : 'teams'} / {summary.runs} {summary.runs === 1 ? 'pay run' : 'pay runs'} / {summary.orders} {summary.orders === 1 ? 'bank order' : 'bank orders'}</span>
+            <button onClick={() => onSection(target)} disabled={Boolean(busy || accountAction)}>Open {label.toLowerCase()}</button>
+            {summary.attention > 0 && <button className="plainButton" onClick={() => onSection(target, 'activity')} disabled={Boolean(busy || accountAction)}>{summary.attention} {summary.attention === 1 ? 'payment needs' : 'payments need'} attention</button>}
+          </section>
+        })}</div>
+        <p className="workspaceHint">Each workspace keeps its own teams and payment history. Both use your connected wallet.</p>
+      </div>}
+      {inWorkspace && <div className="workspaceHeader">
+        <details className="workspaceInfo"><summary>{workspaceLabel} workspace <span>Shared wallet funding</span></summary><p>Teams, pay runs and bank orders stay in this workspace. Wallet balance, funding and payroll controls are shared.{enterprise ? ' Shared staff access and two-person approval are not available yet.' : ' Your existing payroll records are here.'}</p></details>
+        <nav className="workspaceNav" aria-label={`${workspaceLabel} navigation`}>{workspaceTabs.map(([id, label]) => <button type="button" key={id} className={(view === id || (id === 'providers' && view === 'lab')) ? 'active' : ''} aria-current={view === id || (id === 'providers' && view === 'lab') ? 'page' : undefined} disabled={Boolean(busy || accountAction)} onClick={() => navigateWorkspace(id)}>{label}</button>)}</nav>
       </div>}
       <fieldset className="demoContent" disabled={demoMode} aria-label={demoMode ? 'Read-only sample workspace' : undefined}>
-      {enterprise && view === 'overview' && <div className="sectionStack">
-        <section className="panel sectionIntro"><div><span className="panelKicker">Business payments</span><h2>Enterprise workspace</h2><p>Organize a dedicated team, review its payroll and keep each payment route clear.</p></div><span className="statePill neutral">Wallet owner access</span></section>
-        <div className="providerGrid">
-          <ProviderCard title="USDC to USDC" status="Private transfer" tone="safe" detail="Recipients receive shielded USDC. Private transfers hide recipients and amounts onchain; every recipient needs a compatible registered wallet." action="Prepare private payroll" onAction={() => navigateWorkspace(teams.some(team => team.workers.length) ? 'payroll' : 'workers')} />
-          <ProviderCard title="USDC to Naira" status="Beta" tone="neutral" detail="Pay a Nigerian bank account from shielded USDC. The settlement transfer is public and the provider knows the bank details. Deposit detection and delivery remain under validation." action="Open bank payout" onAction={() => navigateWorkspace('lab')} />
-        </div>
-        <section className="panel"><div className="panelTitle"><div><span>Enterprise activity</span><h3>{teams.length} {teams.length === 1 ? 'team' : 'teams'} / {accountData?.payRuns.length ?? 0} {(accountData?.payRuns.length ?? 0) === 1 ? 'pay run' : 'pay runs'} / {paycrestOrders.length} {paycrestOrders.length === 1 ? 'bank order' : 'bank orders'}</h3></div><button className="secondary" onClick={() => navigateWorkspace('activity')}>View history</button></div><p>Only records created in Enterprise appear here. Existing payroll remains in the main workspace.</p></section>
-      </div>}
-      {!enterprise && view === 'overview' && <div className="dashboardLayout">
+      {inWorkspace && view === 'overview' && <div className="dashboardLayout">
         <div className="dashboardMain">
           <section className="welcomeStrip">
             <div><span>Private payroll</span><h2>Pay your team with confidence</h2><p>Add your team, enter each payment, and review the full pay run before you continue.</p></div>
@@ -1775,10 +1801,10 @@ function ProductShell({
       </div>}
 
       {view === 'activity' && <div className="sectionStack">
-        <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Tracked payroll-funding shields and immutable payroll snapshots stay available independently of optional payout providers.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
-        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Shared wallet funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
+        <section className="panel sectionIntro"><div><span className="panelKicker">Account records</span><h2>Transaction history</h2><p>Pay runs and bank payouts saved in this workspace. Shared funding history is in Payout methods.</p></div><button className="secondary" onClick={onRefreshHistory}>Refresh history</button></section>
+
         {accountData?.payRuns.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Shareable evidence</span><h3>Team pay runs</h3></div></div><div className="orderList">{accountData.payRuns.map(run => <PayRunRow key={run.id} run={run} onReview={resumePayRun} onVerify={verifyPayRun} onResolveUnknown={resolveUnknownPayRun} onExport={exportPayRunEvidence} verifying={Boolean(accountAction || busy)} />)}</div></section> : <EmptyState title="No team pay runs yet" detail="Save a draft from Pay run and it will appear here." action="Create pay run" onAction={() => navigateWorkspace('payroll')} />}
-        {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>{enterprise ? 'Enterprise payroll audit trail' : 'Treasury audit trail'}</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
+        {!!accountData?.treasuryAudit?.length && <section className="panel historyPanel"><div className="panelTitle"><div><span>Tamper-evident record</span><h3>Payroll audit trail</h3></div><span className={'statePill ' + ((accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'safe' : 'blocked')}>{(accountData as AccountData & { treasuryAuditVerified: boolean }).treasuryAuditVerified ? 'Integrity verified' : 'Integrity warning'}</span></div><div className="orderList">{accountData.treasuryAudit.slice().reverse().slice(0, 12).map(event => <TreasuryAuditRow key={event.id} event={event} />)}</div></section>}
         {orderHistoryError && <div className="inlineError">Optional settlement history could not refresh. {orderHistoryError}</div>}
         <section className="panel historyPanel"><div className="panelTitle"><div><span>Settlement records</span><h3>Bank payout orders</h3></div></div>{paycrestConfigured === false ? <EmptyState title="Bank payouts are unavailable" detail="Private payroll and STRK20 history remain available." /> : paycrestOrders.length ? <div className="orderList">{paycrestOrders.map(order => <PaycrestOrderRow key={order.id} order={order} busy={busy} onReconcile={onReconcilePayout} onExport={onExportPayoutEvidence} />)}</div> : <EmptyState title="No bank payout orders" detail="Your Nigerian bank payouts will appear here." action="Open bank payout" onAction={() => navigateWorkspace('lab')} />}</section>
       </div>}
@@ -1786,12 +1812,15 @@ function ProductShell({
       {view === 'providers' && <div className="sectionStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Funds and payouts</span><h2>Manage payroll funds</h2><p>Add private USDC and choose how your team gets paid.</p></div></section>
         {shieldPanel}
+        <details className="panel sharedFundingHistory"><summary>Shared wallet funding history</summary>
+        {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Shared wallet funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
+        </details>
         <section className="panel"><div className="panelTitle"><div><span>Organization policy</span><h3>Payroll controls</h3></div><span className={'statePill ' + (payrollPolicy.payoutsPaused ? 'blocked' : 'safe')}>{payrollPolicy.payoutsPaused ? 'Payouts paused' : 'Active'}</span></div><p className="teamDescription">Protect a minimum wallet balance, cap each pay run, or pause new payroll. The maximum and pause are enforced by KudiRail; the reserve uses the private balance you explicitly share through Ready. These controls do not create separate custody or prevent transactions signed outside KudiRoll.</p><div className="workerForm"><label>Protected reserve<input value={policyForm.reserveUsdc} onChange={event => { setPolicyForm(current => ({ ...current, reserveUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0" /></label><label>Maximum pay run<input value={policyForm.maxPayRunUsdc} onChange={event => { setPolicyForm(current => ({ ...current, maxPayRunUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0 = no limit" /></label><label className="policyToggle"><input type="checkbox" checked={policyForm.payoutsPaused} onChange={event => { setPolicyForm(current => ({ ...current, payoutsPaused: event.target.checked })); setPolicyNotice('') }} />Pause new payouts</label><button onClick={savePayrollPolicy} disabled={Boolean(accountAction)}>{accountAction === 'payroll-policy' ? 'Saving…' : 'Save controls'}</button></div>{policyNotice && <div className="draftNotice"><AppIcon name="building" /><span>{policyNotice}</span></div>}</section>
         <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
         <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Beta' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Fund from shielded USDC. Public settlement leg; bank delivery remains in beta." action="Open bank payout" onAction={() => navigateWorkspace('lab')} /></div>
       </div>}
 
-      {view === 'lab' && paycrestPilot}
+      {view === 'lab' && <div className="sectionStack"><button className="plainButton workspaceBack" onClick={() => navigateWorkspace('providers')}>Back to payout methods</button>{paycrestPilot}</div>}
 
       {view === 'settings' && <div className="sectionStack profileStack">
         <section className="panel sectionIntro"><div><span className="panelKicker">Business account</span><h2>Business profile</h2><p>Keep the owner and business details associated with this KudiRoll wallet account up to date.</p></div></section>
@@ -1832,12 +1861,10 @@ function ProductShell({
     {mobileMoreOpen && <div className="mobileMoreBackdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setMobileMoreOpen(false) }}>
       <section id="mobile-more-menu" className="mobileMoreSheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
         <div className="mobileMoreHead"><div><span>More</span><h2 id="mobile-more-title">Account and payouts</h2></div><button type="button" onClick={() => setMobileMoreOpen(false)} aria-label="Close more menu"><XMarkIcon aria-hidden="true" /></button></div>
-        <button type="button" autoFocus className={section === 'providers' ? 'active' : ''} onClick={() => { onSection('providers'); setMobileMoreOpen(false) }}><AppIcon name="route" /><span><strong>Payout methods</strong><small>Private USDC and Naira bank payouts</small></span><ArrowRightIcon aria-hidden="true" /></button>
-        <button type="button" className={enterprise ? 'active' : ''} onClick={() => { onSection('enterprise'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Enterprise</strong><small>Separate teams and business payments</small></span><ArrowRightIcon aria-hidden="true" /></button>
-        <button type="button" className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><ArrowRightIcon aria-hidden="true" /></button>
+        <button type="button" autoFocus className={section === 'settings' ? 'active' : ''} onClick={() => { onSection('settings'); setMobileMoreOpen(false) }}><AppIcon name="building" /><span><strong>Business profile</strong><small>Owner details and account controls</small></span><ArrowRightIcon aria-hidden="true" /></button>
       </section>
     </div>}
-    <nav className="mobileNav" aria-label="Mobile navigation">{nav.slice(0, 4).map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'providers' || section === 'settings' || enterprise || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="more" /><span>More</span></button></nav>
+    <nav className="mobileNav" aria-label="Mobile navigation">{nav.map(item => <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { onSection(item.id); setMobileMoreOpen(false) }}><AppIcon name={item.icon} /><span>{item.label}</span></button>)}<button type="button" aria-expanded={mobileMoreOpen} aria-controls="mobile-more-menu" className={section === 'settings' || mobileMoreOpen ? 'active' : ''} onClick={() => setMobileMoreOpen(open => !open)}><AppIcon name="more" /><span>More</span></button></nav>
   </div>
 }
 
