@@ -1,3 +1,5 @@
+import { useAppFeedback } from './AppFeedback'
+import { payrollBalanceIssue } from './payroll-balance'
 import { WorkerCsvImport } from './WorkerCsvImport'
 import { validateWorkerRows, type WorkerInput } from './worker-import'
 import { useEffect, useRef, useState } from 'react'
@@ -148,6 +150,7 @@ export function App() {
 }
 
 function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
+  const feedback = useAppFeedback()
   const lifecycle = useRef({ active: true, owner: '' })
   useEffect(() => { lifecycle.current.active = true; return () => { lifecycle.current.active = false } }, [])
   function assertActive() { if (!sessionCurrent()) throw new Error('This session has ended or changed. Reopen the current workspace.') }
@@ -452,7 +455,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
       return connected.account
     } catch (error) {
       if (!sessionCurrent()) return null
-      alert(readableError(error))
+      feedback.notify(readableError(error))
       return null
     } finally {
       if (sessionCurrent()) setBusy('')
@@ -488,7 +491,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
     } catch (error) {
       if (!sessionCurrent()) return
       const message = readableError(error)
-      alert(/timeout|timed out/i.test(message)
+      feedback.notify(/timeout|timed out/i.test(message)
         ? 'Ready X connected, but the sign-in approval timed out. Open Ready X and click Continue with Ready X again; you do not need to reconnect.'
         : `Could not open your KudiRoll account. ${message}`)
     } finally {
@@ -508,7 +511,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
       setSessionStatus('signed-in')
     } catch (error) {
       if (!sessionCurrent()) return
-      alert(`Could not sign in with this passkey. ${readableError(error)}`)
+      feedback.notify(`Could not sign in with this passkey. ${readableError(error)}`)
     } finally {
       if (sessionCurrent()) setBusy('')
     }
@@ -566,11 +569,11 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
       prfSecret = extracted.prfSecret
       const result = await accountJson('/api/account/passkeys/registration/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
       setAccountData(result.account)
-      alert(prfSecret ? 'Passkey created for sign-in with PRF support. This does not back up or recover your Ready wallet.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
+      feedback.notify(prfSecret ? 'Passkey created for sign-in with PRF support. This does not back up or recover your Ready wallet.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
       return true
     } catch (error) {
       if (!sessionCurrent()) return false
-      alert(`Could not create the passkey. ${readableError(error)}`)
+      feedback.notify(`Could not create the passkey. ${readableError(error)}`)
       return false
     } finally {
       prfSecret?.fill(0)
@@ -601,9 +604,9 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
       prfSecret = extracted.prfSecret
       const result = await accountJson('/api/account/passkeys/prf/verify', { method: 'POST', body: JSON.stringify({ response: extracted.verificationResponse, prfCapable: Boolean(prfSecret) }) })
       setAccountData(result.account)
-      alert('This passkey is verified for private-wallet recovery.')
+      feedback.notify('This passkey is verified for private-wallet recovery.')
     } catch (error) {
-      alert(`Could not verify this recovery passkey. ${readableError(error)}`)
+      feedback.notify(`Could not verify this recovery passkey. ${readableError(error)}`)
     } finally {
       prfSecret?.fill(0)
       setBusy('')
@@ -611,16 +614,16 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
   }
 
   async function revokePasskey(credentialId: string) {
-    if (!window.confirm('Revoke this passkey? A different recovery passkey must approve the change.')) return
+    if (!await feedback.confirm('Revoke this passkey? A different recovery passkey must approve the change.')) return
     try {
       setBusy('passkey-revoke')
       const request = await accountJson('/api/account/passkeys/revocation/options', { method: 'POST', body: JSON.stringify({ credentialId }) })
       const response = await startAuthentication({ optionsJSON: request.options })
       const result = await accountJson('/api/account/passkeys/revocation/verify', { method: 'POST', body: JSON.stringify({ response }) })
       setAccountData(result.account)
-      alert('Passkey revoked. Sessions created by that credential were invalidated.')
+      feedback.notify('Passkey revoked. Sessions created by that credential were invalidated.')
     } catch (error) {
-      alert(`Could not revoke the passkey. ${readableError(error)}`)
+      feedback.notify(`Could not revoke the passkey. ${readableError(error)}`)
     } finally {
       setBusy('')
     }
@@ -669,7 +672,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
 
   async function leaveWallet() {
     try { await accountJson('/api/account/session', { method: 'DELETE' }) }
-    catch (error) { window.alert(`Sign-out could not be confirmed. ${readableError(error)}`); return }
+    catch (error) { feedback.notify(`Sign-out could not be confirmed. ${readableError(error)}`); return }
     const disconnectFeature = wallet?.walletProvider.features['standard:disconnect']
     if (disconnectFeature) await disconnectFeature.disconnect().catch(() => undefined)
     setWallet(null)
@@ -796,7 +799,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
     const key = `kudiroll-funding-receipt:${accountData.walletAddress}:${attempt.id}`
     let saved = ''
     try { saved = window.localStorage.getItem(key) || '' } catch {}
-    const hash = window.prompt('Paste the existing deposit transaction hash from Ready. Leave blank only if you have verified no deposit was submitted.', saved)
+    const hash = await feedback.prompt('Paste the existing deposit transaction hash from Ready. Leave blank only if you have verified no deposit was submitted.', saved)
     if (hash === null) return
     setBusy('recover-funding')
     try {
@@ -804,7 +807,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
         setShieldTransactionHash(hash.trim())
         await accountJson('/api/account/treasury/shields', { method: 'POST', body: JSON.stringify({ transactionHash: hash.trim(), amountUsdc: attempt.amountUsdc, attemptId: attempt.id }) })
       } else {
-        const confirmation = window.prompt('Check Ready activity, including pending transactions. Type NO DEPOSIT IN READY only when no deposit was submitted. Fresh sign-in within five minutes is required.')
+        const confirmation = await feedback.prompt('Check Ready activity, including pending transactions. Type NO DEPOSIT IN READY only when no deposit was submitted. Fresh sign-in within five minutes is required.')
         if (confirmation !== 'NO DEPOSIT IN READY') return
         await accountJson('/api/account/treasury/funding-attempt/resolve', { method: 'POST', body: JSON.stringify({ attemptId: attempt.id, confirmation }) })
       }
@@ -1056,7 +1059,7 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
       {!trackedOrder && <details className="shieldDetails"><summary>Recover an earlier order or payment</summary><div className="formGrid"><label>Paycrest order ID<input value={recoveryOrderId} onChange={event => setRecoveryOrderId(event.target.value)} autoComplete="off" /></label><label>Transaction hash (optional for an unpaid order)<input value={recoveryTransactionHash} onChange={event => setRecoveryTransactionHash(event.target.value)} autoComplete="off" /></label><div className="fieldAction"><button className="secondary" onClick={recoverEarlierPayout} disabled={Boolean(busy) || !recoveryOrderId.trim() || Boolean(recoveryTransactionHash.trim() && !/^0x[0-9a-fA-F]{1,64}$/.test(recoveryTransactionHash.trim()))}>{busy === 'recover-payout' ? 'Recovering...' : 'Recover payment'}</button></div></div><p>KudiRail verifies that the order belongs to this signed-in Starknet account, then compares the exact wallet transaction with Paycrest.</p></details>}
       {trackedOrder && <PayoutReceipt order={trackedOrder} status={currentOrderStatus} busy={busy} orderExpired={orderExpired} exactAmountCovered={exactAmountCovered} simulationState={simulationState} onSimulate={simulate} onReconcile={reconcilePayout} onExport={exportPayoutEvidence} onClose={resetOrder} />}
       {trackedOrder && <div className={`simulation ${simulationState}`}><strong>{trackedOrder.displayStatus === 'reconciliation-required' ? 'Provider reconciliation needed' : simulationState === 'passed' ? 'Payment ready' : trackedOrder.transactionHash ? currentOrderStatus : 'Payment preview'}</strong><span>{trackedOrder.reconciliationReason || trackedOrder.chainMessage || simulationMessage}</span></div>}
-      {simulationState === 'passed' && trackedOrder && !trackedOrder.transactionHash && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {trackedOrder.amountUsdc} USDC</strong><p>{trackedOrder.accountName} receives ₦{trackedOrder.amountNgn}. Ready X will show the final wallet approval; cancelling it sends nothing.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
+      {simulationState === 'passed' && trackedOrder && !trackedOrder.transactionHash && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {trackedOrder.amountUsdc} USDC</strong><p>{trackedOrder.accountName} receives ₦{trackedOrder.amountNgn}. The connected wallet owner approves in Ready. If approval is interrupted, check wallet activity before retrying.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
     </section>
   </div>
 
@@ -1066,10 +1069,11 @@ function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
     <p className="shieldDisclosure">Funding is a public onchain transaction. Payroll becomes private after the deposit is confirmed.</p>
     <details className="shieldDetails"><summary>How funding works</summary><div className="shieldSteps"><div><strong>1</strong><span>Approve USDC</span></div><div><strong>2</strong><span>Deposit funds</span></div><div><strong>3</strong><span>Wait for confirmation</span></div></div><p>Ready X shows the current network and pool fees before you approve.</p></details>
     <div className="treasuryTracker"><div><span>Status</span><strong>{treasuryReadiness?.message || 'No funding transaction is being tracked.'}</strong></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
+    {treasuryReadiness?.status === 'ready' && shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open funding transaction on Starkscan</a>}
     {treasuryError && <div className="inlineError">{treasuryError}</div>}
     {bankCreationNotice}
-    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy) || Boolean(accountData?.fundingAttempt)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
-    {shieldState !== 'idle' && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
+    <div className="shieldControls"><label>Amount to add<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy) || Boolean(accountData?.fundingAttempt)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
+    {shieldState !== 'idle' && !(shieldState === 'submitted' && treasuryReadiness?.status === 'ready') && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
     {accountData?.fundingAttempt && <div className="inlineError"><strong>Funding attempt needs recovery</strong><p>A previous funding request may have been submitted. Recover its receipt or confirm no deposit after checking Ready.</p><button onClick={recoverFunding} disabled={Boolean(busy)}>Recover funding attempt</button></div>}
     {shieldState === 'passed' && !accountData?.fundingAttempt && <div className="shieldApproval"><span>Ready X may request separate token approval and deposit transactions. Check wallet activity if you cancel partway through.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
@@ -1279,6 +1283,7 @@ function ProductShell({
   onRevokePasskey: (credentialId: string) => void
   onToggleTheme: () => void
 }) {
+  const feedback = useAppFeedback()
   const enterprise = section === 'enterprise'
   const workspace: PaymentWorkspace = enterprise ? 'enterprise' : 'standard'
   const inWorkspace = section === 'personal' || enterprise
@@ -1515,15 +1520,12 @@ function ProductShell({
   }
 
   async function prepareDraft() {
-    if (!wallet) return setDraftNotice('Connect your wallet before previewing this pay run.')
-    if (!supportsPrivatePayroll) return setDraftNotice('This wallet can manage your KudiRoll account, but private payroll requires Ready X with STRK20 API 0.10.3.')
+    if (!sourceAccountData) return setDraftNotice('Sign in before saving a draft.')
     if (!selectedTeam) return setDraftNotice('Select a saved team first.')
     if (sourceAccountData?.payRuns.some(run => run.status === 'submitting' || run.status === 'unknown')) return setDraftNotice('Resolve the existing unknown payroll submission in History before creating another pay run.')
     if (!selectedItems.length || selectedItems.some(worker => !Number(draftAmounts[worker.id] || worker.defaultAmountUsdc))) return setDraftNotice('Select workers and enter an amount greater than zero for each person.')
     if (payrollPolicy.payoutsPaused) return setDraftNotice('Payroll payouts are paused in Payroll controls.')
     if (maximumPayRun > 0 && totalDraft > maximumPayRun) return setDraftNotice(`This total exceeds your ${payrollPolicy.maxPayRunUsdc} USDC pay-run limit.`)
-    if (privateBalanceUsdc === null) return setDraftNotice('Check your available balance before previewing this pay run.')
-    if (availableAfterReserve !== null && totalDraft > availableAfterReserve) return setDraftNotice(`This total would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
     setAccountAction('payrun')
     try {
       const result = await createRailPayRun(onMutateAccount, { workspace, teamId: selectedTeam.id, settlementMode: enterprise ? 'private' : settlementMode, items: selectedItems.map(worker => ({ workerId: worker.id, amountUsdc: draftAmounts[worker.id] || worker.defaultAmountUsdc })) })
@@ -1538,7 +1540,8 @@ function ProductShell({
   }
 
   async function simulateBatch() {
-    if (!wallet || !activePayRun || !activeExecutionManifest) return
+    if (!activePayRun || !activeExecutionManifest) return
+    if (!wallet) return setBatchMessage('Connect Ready to prepare payment. Your draft is saved.')
     if (activeExecutionManifest.payRunId !== activePayRun.id || activeExecutionManifest.signing.serverCanSubmit) return setBatchMessage('KudiRoll Rail returned an invalid client-signing manifest. Nothing was submitted.')
     const privateMode = activeExecutionManifest.settlementMode === 'private'
     if (activeExecutionManifest.actions.some(item => item.kind !== (privateMode ? 'private-transfer' : 'public-withdrawal'))) return setBatchMessage('KudiRoll Rail returned a mismatched payout manifest. Nothing was submitted.')
@@ -1546,7 +1549,8 @@ function ProductShell({
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Verify a mature shield or check an existing spendable private balance before preparing payroll.')
     if (payrollPolicy.payoutsPaused) return setBatchMessage('Payroll payouts are paused in Payroll controls.')
     if (maximumPayRun > 0 && Number(activePayRun.totalUsdc) > maximumPayRun) return setBatchMessage(`This pay run exceeds the ${payrollPolicy.maxPayRunUsdc} USDC organization limit.`)
-    if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
+    const balanceIssue = payrollBalanceIssue(Number(activePayRun.totalUsdc), privateBalanceUsdc, protectedReserve)
+    if (balanceIssue) return setBatchMessage(balanceIssue)
     setAccountAction('simulate-batch')
     try {
       const items = activeExecutionManifest.actions.map(item => ({ recipient: item.recipient, amountUsdc: item.amountUsdc }))
@@ -1581,7 +1585,8 @@ function ProductShell({
     if (!treasuryReady) return setBatchMessage(treasuryReadiness?.message || 'Payroll funding readiness must be verified before payroll can be submitted.')
     if (payrollPolicy.payoutsPaused) return setBatchMessage('Payroll payouts are paused in Payroll controls.')
     if (maximumPayRun > 0 && Number(activePayRun.totalUsdc) > maximumPayRun) return setBatchMessage(`This pay run exceeds the ${payrollPolicy.maxPayRunUsdc} USDC organization limit.`)
-    if (availableAfterReserve !== null && Number(activePayRun.totalUsdc) > availableAfterReserve) return setBatchMessage(`This pay run would use the protected ${payrollPolicy.reserveUsdc} USDC reserve.`)
+    const balanceIssue = payrollBalanceIssue(Number(activePayRun.totalUsdc), privateBalanceUsdc, protectedReserve)
+    if (balanceIssue) return setBatchMessage(balanceIssue)
     setAccountAction('submit-batch')
     let walletInvoked = false
     let submissionAuthorized = false
@@ -1589,7 +1594,8 @@ function ProductShell({
       const freshBalance = await onReadBalance()
       if (freshBalance === null) throw new Error('Could not confirm the current private balance. Check the balance and approve again.')
       const reviewedReserve = Number(activeExecutionManifest.policy.reserveUsdc)
-      if (Number(activePayRun.totalUsdc) > Math.max(0, freshBalance - reviewedReserve)) throw new Error(`This pay run would use the protected ${activeExecutionManifest.policy.reserveUsdc} USDC reserve.`)
+      const freshBalanceIssue = payrollBalanceIssue(Number(activePayRun.totalUsdc), freshBalance, reviewedReserve)
+      if (freshBalanceIssue) throw new Error(freshBalanceIssue)
       const authorization = await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'submitting', expectedPolicyVersion: activeExecutionManifest.policy.version })
       submissionAuthorized = true
       const authorizedManifest = authorization.executionManifest as PayRunExecutionManifest | undefined
@@ -1629,7 +1635,7 @@ function ProductShell({
         setBatchMessage(recoveredHash
           ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
           : 'Ready did not confirm a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
-      } else if (/controls changed|current private balance|protected .* reserve/i.test(message)) {
+      } else if (/controls changed|current private balance|protected reserve|Insufficient balance/i.test(message)) {
         if (submissionAuthorized) await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown' }).catch(() => onRefreshHistory())
         setBatchState(submissionAuthorized ? 'unknown' : 'failed')
         setBatchMessage(`${message} No wallet transaction was opened.${submissionAuthorized ? ' Review this attempt in History before retrying.' : ''}`)
@@ -1663,7 +1669,7 @@ function ProductShell({
       setBatchState('idle')
       setBatchMessage('Review this saved snapshot, then check it again in Ready before approval.')
       onWorkspaceView('payroll')
-    } catch (error) { window.alert(readableError(error)) }
+    } catch (error) { feedback.notify(readableError(error)) }
     finally { setAccountAction('') }
   }
 
@@ -1671,27 +1677,27 @@ function ProductShell({
     setAccountAction(`verify-pay-run:${payRunId}`)
     try {
       const result = await verifyRailPayRun(onMutateAccount, payRunId)
-      if (result.pending) window.alert(result.message)
+      if (result.pending) feedback.notify(result.message)
     } catch (error) {
-      window.alert(`Could not verify this payroll transaction. ${readableError(error)}`)
+      feedback.notify(`Could not verify this payroll transaction. ${readableError(error)}`)
     } finally { setAccountAction('') }
   }
 
   async function resolveUnknownPayRun(payRunId: string) {
-    const recoveredHash = window.prompt('If Ready shows a submitted transaction, paste its hash. Otherwise leave blank to review a retry.')
+    const recoveredHash = await feedback.prompt('If Ready shows a submitted transaction, paste its hash. Otherwise leave blank to review a retry.')
     if (recoveredHash === null) return
     if (recoveredHash.trim()) {
       try { await updateRailPayRun(onMutateAccount, payRunId, { status: 'submitted', transactionHash: recoveredHash.trim() }) }
-      catch (error) { window.alert(readableError(error)) }
+      catch (error) { feedback.notify(readableError(error)) }
       return
     }
-    const confirmation = window.prompt('First check Ready activity and confirm that no transaction was submitted. Then type NO TRANSACTION IN READY to unlock payroll retries.')
+    const confirmation = await feedback.prompt('First check Ready activity and confirm that no transaction was submitted. Then type NO TRANSACTION IN READY to unlock payroll retries.')
     if (confirmation !== 'NO TRANSACTION IN READY') return
     setAccountAction(`resolve-pay-run:${payRunId}`)
     try {
       await resolveUnknownRailPayRun(onMutateAccount, payRunId, confirmation)
     } catch (error) {
-      window.alert(`Could not release this unknown submission. ${readableError(error)}`)
+      feedback.notify(`Could not release this unknown submission. ${readableError(error)}`)
     } finally { setAccountAction('') }
   }
 
@@ -1709,7 +1715,7 @@ function ProductShell({
       anchor.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (error) {
-      window.alert(`Could not export payroll evidence. ${readableError(error)}`)
+      feedback.notify(`Could not export payroll evidence. ${readableError(error)}`)
     } finally { setAccountAction('') }
   }
 
@@ -1792,7 +1798,7 @@ function ProductShell({
         <section className="panel formPanel"><div className="twoFieldGrid"><label>Team name<input value={teamName} onChange={event => setTeamName(event.target.value)} placeholder="e.g. Lagos operations" /></label><label>Description<input value={teamDescription} onChange={event => setTeamDescription(event.target.value)} placeholder="Optional payroll note" /></label></div><div className="formFooter"><span>{walletAddress ? `Saved to ${shortAddress(walletAddress)}.` : 'Saved to your verified wallet account.'}</span><button onClick={createSavedTeam} disabled={Boolean(accountAction)}>{accountAction === 'team' ? 'Creating…' : 'Create team'}</button></div></section>
         {teams.length ? <>
           <section className="teamSelector" aria-label="Saved teams">{teams.map(team => <button key={team.id} className={selectedTeam?.id === team.id ? 'active' : ''} disabled={Boolean(accountAction || busy)} onClick={() => { setSelectedTeamId(team.id); clearDraftReview(); setWorkerError('') }}><strong>{team.name}</strong><span>{team.workers.length} {team.workers.length === 1 ? 'worker' : 'workers'}</span></button>)}</section>
-          {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" disabled={Boolean(accountAction || busy)} onClick={async () => { if (confirm(`Delete ${selectedTeam.name}? Existing pay-run history will remain.`)) await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }) }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}<WorkerCsvImport key={selectedTeam.id} teamName={selectedTeam.name} existing={selectedTeam.workers} disabled={Boolean(accountAction || busy)} onSave={importWorkers} />{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" onClick={() => onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' })}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
+          {selectedTeam && <section className="panel directoryPanel"><div className="panelTitle"><div><span>Selected team</span><h3>{selectedTeam.name}</h3></div><button className="rowAction" disabled={Boolean(accountAction || busy)} onClick={async () => { if (await feedback.confirm(`Delete ${selectedTeam.name}? Saved pay-run history will remain.`, 'Delete team', 'Delete team')) { setAccountAction('delete-team'); try { await onMutateAccount(`/api/account/teams/${selectedTeam.id}`, { method: 'DELETE' }); feedback.notify('Team deleted. Saved pay-run history remains.') } catch (error) { feedback.notify(readableError(error)) } finally { setAccountAction('') } } }}>Delete team</button></div><p className="teamDescription">{selectedTeam.description || 'No team description.'}</p><div className="workerForm"><label>Name<input value={workerName} onChange={event => setWorkerName(event.target.value)} placeholder="e.g. Ada Okafor" /></label><label>Wallet address<input value={workerAddress} onChange={event => setWorkerAddress(event.target.value)} placeholder="0x..." autoComplete="off" /></label><label>Default USDC<input value={workerAmount} onChange={event => setWorkerAmount(event.target.value.replace(/[^\d.]/g, ''))} placeholder="0.00" inputMode="decimal" /></label><button onClick={addWorker} disabled={Boolean(accountAction)}>{accountAction === 'worker' ? 'Saving…' : 'Add worker'}</button></div>{workerError && <div className="inlineError">{workerError}</div>}<WorkerCsvImport key={selectedTeam.id} teamName={selectedTeam.name} existing={selectedTeam.workers} disabled={Boolean(accountAction || busy)} onSave={importWorkers} />{selectedTeam.workers.length ? <div className="dataList">{selectedTeam.workers.map(worker => <div className="dataRow" key={worker.id}><div className="avatar">{initials(worker.name)}</div><div className="dataIdentity"><strong>{worker.name}</strong><span>{shortAddress(worker.walletAddress)}</span></div><span className="defaultAmount">{worker.defaultAmountUsdc} USDC</span><button className="rowAction" disabled={Boolean(accountAction || busy)} onClick={async () => { if (!await feedback.confirm(`Remove ${worker.name} from ${selectedTeam.name}? Saved pay-run history will remain.`, 'Remove worker', 'Remove worker')) return; setAccountAction('remove-worker'); try { await onMutateAccount(`/api/account/teams/${selectedTeam.id}/workers/${worker.id}`, { method: 'DELETE' }); feedback.notify('Worker removed. Saved pay-run history remains.') } catch (error) { feedback.notify(readableError(error)) } finally { setAccountAction('') } }}>Remove</button></div>)}</div> : <EmptyState title="No workers in this team" detail="Add the first worker above. Their details will remain after refresh and sign-in." />}</section>}
         </> : <EmptyState title="Create your first team" detail="Teams keep worker details separate and reusable for future pay runs." />}
       </div>}
 
@@ -1814,10 +1820,10 @@ function ProductShell({
           </> : <EmptyState title={teams.length ? 'This team has no workers' : 'Create a team to continue'} detail={teams.length ? 'Add workers to the selected team before preparing payroll.' : 'Create a saved team and add its workers first.'} action="Manage teams" onAction={() => navigateWorkspace('workers')} />}
             {activePayRun && <section className="batchReview">
               <div className="batchHead"><div><span>Saved pay run</span><strong>{activePayRun.teamName}</strong></div><div><span>{activePayRun.settlementMode === 'private' ? 'Fully private batch' : 'Direct wallet payout'}</span><strong>{activePayRun.totalUsdc} USDC</strong></div></div>
-              <div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
+              <p>Draft saved. The connected wallet owner prepares and approves payment in Ready. Enterprise has no separate staff approver or two-person approval.</p><div className="batchItems">{activePayRun.items.map(item => <div key={item.id}><span>{item.workerName}</span><strong>{item.amountUsdc} USDC</strong></div>)}</div>
               <div className={`simulation ${batchState}`}><strong>{batchState === 'passed' ? 'Ready batch check passed' : batchState === 'submitted' ? 'Payroll submitted' : batchState === 'unknown' ? 'Submission outcome unknown' : batchState === 'failed' ? 'Batch needs attention' : 'Ready batch check'}</strong><span>{batchMessage}</span></div>
-              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction) || !treasuryReady}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : treasuryReady ? 'Check ' + activePayRun.items.length + (activePayRun.settlementMode === 'private' ? ' private payments' : ' wallet payouts') : 'Waiting for payroll funds'}</button> : null}
-              {batchState === 'passed' && <div className="batchApproval"><strong>One approval pays the whole team.</strong><p>Controls v{activeExecutionManifest?.policy.version ?? payrollPolicy.version} are locked to this review. KudiRoll checks the private balance again before Ready X opens.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Rechecking controls…' : 'Approve payroll in Ready X'}</button></div>}
+              {batchState === 'idle' || batchState === 'failed' ? <button onClick={simulateBatch} disabled={Boolean(accountAction)}>{accountAction === 'simulate-batch' ? 'Checking in Ready…' : 'Prepare payment in Ready'}</button> : null}
+              {batchState === 'passed' && <div className="batchApproval"><strong>The connected wallet owner approves this payment in Ready.</strong><p>Controls v{activeExecutionManifest?.policy.version ?? payrollPolicy.version} are locked to this review. KudiRoll checks the private balance again before Ready X opens.</p><button onClick={submitBatch} disabled={Boolean(accountAction)}>{accountAction === 'submit-batch' ? 'Rechecking controls…' : 'Approve payroll in Ready X'}</button></div>}
             </section>}
         </section>
       </div>}
@@ -1837,7 +1843,7 @@ function ProductShell({
         <details className="panel sharedFundingHistory"><summary>Shared wallet funding history</summary>
         {accountData?.treasuryShields.length ? <section className="panel historyPanel"><div className="panelTitle"><div><span>Public pool funding</span><h3>Shared wallet funding</h3></div></div><div className="orderList">{accountData.treasuryShields.map(shield => <TreasuryShieldRow key={shield.transactionHash} shield={shield} readiness={treasuryReadiness?.shield?.transactionHash === shield.transactionHash ? treasuryReadiness : null} />)}</div></section> : <EmptyState title="No tracked payroll funding" detail="A shield appears here after KudiRoll receives its transaction hash from Ready." />}
         </details>
-        <section className="panel"><div className="panelTitle"><div><span>Organization policy</span><h3>Payroll controls</h3></div><span className={'statePill ' + (payrollPolicy.payoutsPaused ? 'blocked' : 'safe')}>{payrollPolicy.payoutsPaused ? 'Payouts paused' : 'Active'}</span></div><p className="teamDescription">Protect a minimum wallet balance, cap each pay run, or pause new payroll. The maximum and pause are enforced by KudiRail; the reserve uses the private balance you explicitly share through Ready. These controls do not create separate custody or prevent transactions signed outside KudiRoll.</p><div className="workerForm"><label>Protected reserve<input value={policyForm.reserveUsdc} onChange={event => { setPolicyForm(current => ({ ...current, reserveUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0" /></label><label>Maximum pay run<input value={policyForm.maxPayRunUsdc} onChange={event => { setPolicyForm(current => ({ ...current, maxPayRunUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0 = no limit" /></label><label className="policyToggle"><input type="checkbox" checked={policyForm.payoutsPaused} onChange={event => { setPolicyForm(current => ({ ...current, payoutsPaused: event.target.checked })); setPolicyNotice('') }} />Pause new payouts</label><button onClick={savePayrollPolicy} disabled={Boolean(accountAction)}>{accountAction === 'payroll-policy' ? 'Saving…' : 'Save controls'}</button></div>{policyNotice && <div className="draftNotice"><AppIcon name="building" /><span>{policyNotice}</span></div>}</section>
+        <section className="panel"><div className="panelTitle"><div><span>Shared wallet controls</span><h3>Payroll controls</h3></div><span className={'statePill ' + (payrollPolicy.payoutsPaused ? 'blocked' : 'safe')}>{payrollPolicy.payoutsPaused ? 'Payouts paused' : 'Active'}</span></div><p className="teamDescription">These controls apply to both Personal payroll and Enterprise. Set a reserve, cap each pay run, or pause payouts.</p><div className="workerForm"><label>Protected reserve (USDC)<small>0 means no reserve.</small><input value={policyForm.reserveUsdc} onChange={event => { setPolicyForm(current => ({ ...current, reserveUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0" /></label><label>Maximum pay run (USDC)<small>0 means no cap.</small><input value={policyForm.maxPayRunUsdc} onChange={event => { setPolicyForm(current => ({ ...current, maxPayRunUsdc: event.target.value.replace(/[^\d.]/g, '') })); setPolicyNotice('') }} inputMode="decimal" placeholder="0 = no limit" /></label><label className="policyToggle"><input type="checkbox" checked={policyForm.payoutsPaused} onChange={event => { setPolicyForm(current => ({ ...current, payoutsPaused: event.target.checked })); setPolicyNotice('') }} />Pause new payouts</label><button onClick={savePayrollPolicy} disabled={Boolean(accountAction)}>{accountAction === 'payroll-policy' ? 'Saving…' : 'Save controls'}</button></div><details className="shieldDetails"><summary>How controls are enforced</summary><p>KudiRail enforces the maximum and pause. The reserve uses the private balance checked through Ready. These controls do not create separate custody or restrict transactions outside KudiRoll.</p></details>{policyNotice && <div className="draftNotice"><AppIcon name="building" /><span>{policyNotice}</span></div>}</section>
         <div className="providerSectionTitle"><span>Payout routes</span><h3>How your team gets paid</h3></div>
         <div className="providerGrid"><ProviderCard title="Private USDC" status="Available" tone="safe" detail="Send privately to a compatible Starknet wallet." /><ProviderCard title="Naira bank account" status={paycrestConfigured && liveOrdersEnabled ? 'Beta' : 'Unavailable'} tone={paycrestConfigured && liveOrdersEnabled ? 'safe' : 'neutral'} detail="Fund from shielded USDC. Public settlement leg; bank delivery remains in beta." action="Open bank payout" onAction={() => navigateWorkspace('lab')} /></div>
       </div>}

@@ -1271,3 +1271,12 @@ html[data-theme='dark'] .workspaceNav button.active { border-color: #a9d4b9; bac
 .importRow label { display: grid; gap: 6px; min-width: 0; }
 .importRow .inlineError { grid-column: 1 / -1; }
 @media (max-width: 680px) { .importRow { grid-template-columns: minmax(0, 1fr); } }
+
+.appDialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; border: 1px solid #cbd5ce; border-radius: 18px; padding: 24px; background: var(--surface, #fff); color: var(--text, #182318); box-sizing: border-box; }
+.appDialog::backdrop { background: #08150bb3; }
+.appDialog p, .appNotice p { overflow-wrap: anywhere; line-height: 1.5; }
+.appDialog label { display: grid; gap: 8px; margin: 18px 0; }
+.appDialog input { width: 100%; box-sizing: border-box; }
+.appNotice { position: fixed; z-index: 1000; bottom: 90px; right: 20px; width: min(420px, calc(100vw - 40px)); padding: 16px; border: 1px solid #cbd5ce; border-radius: 14px; background: var(--surface, #fff); color: var(--text, #182318); box-shadow: 0 6px 24px #0002; box-sizing: border-box; }
+
+html[data-theme='dark'] .appDialog, html[data-theme='dark'] .appNotice { background: #141915; color: #edf3ed; border-color: #323b34; }

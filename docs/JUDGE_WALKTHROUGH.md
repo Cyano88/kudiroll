@@ -22,4 +22,8 @@ On 6 September 2026 at 09:45 UTC, the existing Paycrest order reported `expired`
 
 An isolated authenticated browser session created an Enterprise team, imported two synthetic workers from CSV, and displayed both in the private pay-run composer with a combined 0.300000 USDC total. Personal records remained separate. No wallet was connected and no payment was sent.
 
-The current Save and review action requires Ready and a checked private balance. Consequently, this session does not certify the complete wallet-connected draft-creation flow. Earlier synthetic checks covered reopening a saved Enterprise run from History; the next operator check is to save a new Enterprise draft with Ready connected and reopen it from Enterprise History. Saving a draft does not itself submit payment. Do not present sample drafts or this onboarding check as additional Mainnet payment evidence.
+At that earlier checkpoint, Save and review required Ready and a checked private balance. Consequently, this session does not certify the complete wallet-connected draft-creation flow. Earlier synthetic checks covered reopening a saved Enterprise run from History; the next operator check is to save a new Enterprise draft with Ready connected and reopen it from Enterprise History. Saving a draft does not itself submit payment. Do not present sample drafts or this onboarding check as additional Mainnet payment evidence.
+
+## Follow-up usability change
+
+Authenticated draft saving now works without Ready or a balance check. A synthetic browser check saved and reopened an Enterprise draft successfully. Ready, funding and balance checks remain required for payment preparation and approval. See [usability validation](USABILITY.md).
