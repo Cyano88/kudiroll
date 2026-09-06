@@ -2,7 +2,7 @@
 
 ## Start here: what the evidence establishes
 
-KudiRoll combines STRK20 payroll with reusable teams and a durable KudiRail backend. Start with the [submitted video](https://youtu.be/0Aa_1LXS-Gw), [live read-only demo](https://kudiroll-production.up.railway.app/demo), and [two-minute walkthrough](JUDGE_WALKTHROUGH.md).
+KudiRoll combines STRK20 payroll with reusable teams and a durable KudiRail backend. Start with the [submitted video](https://youtu.be/v0-Z7-jrWuE), [live read-only demo](https://kudiroll-production.up.railway.app/demo), and [two-minute walkthrough](JUDGE_WALKTHROUGH.md).
 
 | Evidence | What it establishes | Limit |
 | --- | --- | --- |
@@ -11,12 +11,12 @@ KudiRoll combines STRK20 payroll with reusable teams and a durable KudiRail back
 | [Recovery implementation and validation](FLOW_AUDIT.md#recovery-remediation---6-september-2026) | Durable attempts, duplicate-prevention controls and explicit recovery for uncertain outcomes. | Regression and synthetic checks are not production fault-injection certification. |
 | [CSV onboarding and workspace isolation](TEAM_IMPORT.md) | Live editable CSV import with atomic validation and separate Personal/Enterprise team records. | Synthetic workflow evidence; it does not register private-transfer recipients or prove a new payment. |
 
-The live CSV releases are KudiRoll `f5a31c9` and KudiRail `5444c33`; their deployment checkpoint is recorded in [team import validation](TEAM_IMPORT.md#production-checkpoint---6-september-2026). The uploaded video remains unchanged. Enterprise is owner-operated, with shared wallet funding; staff roles and two-person approval are not yet implemented. Bank settlement remains beta, with provider reconciliation being handled by the Paycrest team as reported by the project operator.
+The live CSV releases are KudiRoll `f5a31c9` and KudiRail `5444c33`; their deployment checkpoint is recorded in [team import validation](TEAM_IMPORT.md#production-checkpoint---6-september-2026). The current demo video link was updated on 6 September 2026. Enterprise is owner-operated, with shared wallet funding; staff roles and two-person approval are not yet implemented. Bank settlement remains beta, with provider reconciliation being handled by the Paycrest team as reported by the project operator.
 
 
 ## Deployed product improvements - 6 September 2026
 
-The uploaded [demo video](https://youtu.be/0Aa_1LXS-Gw) is unchanged. This note supplements it with later evidence and the current live product. Follow the [judge walkthrough](JUDGE_WALKTHROUGH.md) for a short, read-only tour.
+The current [demo video](https://youtu.be/v0-Z7-jrWuE) replaces the unavailable upload. This note supplements it with later evidence and the current live product. Follow the [judge walkthrough](JUDGE_WALKTHROUGH.md) for a short, read-only tour.
 
 - **Simpler navigation:** Home, Personal payroll and Enterprise are the primary destinations. Both workspaces use Overview, Team, Pay runs, Payout methods and History. Bank payout sits inside Payout methods; KudiRail docs and Business profile retain their sidebar positions.
 - **Separate records:** Personal and Enterprise keep their own teams, saved pay runs and bank orders. Existing personal records retain their attribution. Wallet balance, funding and payroll controls remain shared; Enterprise does not yet provide staff roles or two-person approval.

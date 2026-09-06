@@ -1,6 +1,6 @@
 # Judge walkthrough
 
-A two-minute tour of the current [public read-only demo](https://kudiroll-production.up.railway.app/demo). No wallet, sign-in or payment is required. Demo records are labeled sample data; Mainnet evidence is linked separately. The [uploaded video](https://youtu.be/0Aa_1LXS-Gw) remains unchanged.
+A two-minute tour of the current [public read-only demo](https://kudiroll-production.up.railway.app/demo). No wallet, sign-in or payment is required. Demo records are labeled sample data; Mainnet evidence is linked separately. Watch the [current demo video](https://youtu.be/v0-Z7-jrWuE), which replaces the unavailable upload.
 
 Read the [evidence summary](SUBMISSION_NOTE.md#start-here-what-the-evidence-establishes) first: it distinguishes Mainnet payment evidence from synthetic product checks.
 
