@@ -30,6 +30,7 @@ test('proxies JSON, cookies, idempotency, origin, status and response cookies wi
       cookie: req.headers.cookie,
       idempotencyKey: req.headers['idempotency-key'],
       origin: req.headers.origin,
+      expectedAccount: req.headers['x-kudiroll-account'],
       hasAuthorization: Boolean(req.headers.authorization),
     })
   })
@@ -45,6 +46,7 @@ test('proxies JSON, cookies, idempotency, origin, status and response cookies wi
         'Content-Type': 'application/json',
         Cookie: '__Host-kudiroll_session=existing',
         'Idempotency-Key': 'proxy-contract-key-0001',
+        'X-KudiRoll-Account': '0xc01',
         Origin: 'https://kudiroll.example',
         Authorization: 'Bearer must-not-forward',
       },
@@ -59,6 +61,7 @@ test('proxies JSON, cookies, idempotency, origin, status and response cookies wi
     assert.equal(data.idempotencyKey, 'proxy-contract-key-0001')
     assert.equal(data.origin, 'https://kudiroll.example')
     assert.equal(data.hasAuthorization, false)
+    assert.equal(data.expectedAccount, '0xc01')
   } finally {
     await Promise.all([
       new Promise<void>((resolve, reject) => proxy.server.close(error => error ? reject(error) : resolve())),
@@ -79,7 +82,7 @@ test('reads only a valid KudiRail health response and fails closed upstream', as
   try {
     const response = await fetch(`${proxy.origin}/api/v1/pay-runs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
     assert.equal(response.status, 502)
-    assert.match(String((await response.json()).error), /Nothing was signed or submitted/)
+    assert.match(String((await response.json()).error), /may still be processing/)
   } finally {
     await new Promise<void>((resolve, reject) => proxy.server.close(error => error ? reject(error) : resolve()))
   }

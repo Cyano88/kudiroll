@@ -3,7 +3,7 @@ import type { RequestHandler } from 'express'
 type Fetcher = typeof fetch
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
-const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type', 'cookie', 'idempotency-key', 'origin', 'user-agent', 'x-paycrest-signature'] as const
+const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type', 'cookie', 'idempotency-key', 'x-kudiroll-account', 'origin', 'user-agent', 'x-paycrest-signature'] as const
 const FORWARDED_RESPONSE_HEADERS = ['cache-control', 'content-type', 'content-disposition', 'kudiroll-api-version', 'retry-after'] as const
 
 export function normalizeKudiRailUpstream(value: string | undefined) {
@@ -78,7 +78,7 @@ export function createKudiRailProxy(upstream: string, fetcher: Fetcher = fetch):
       if (req.method === 'HEAD' || response.status === 204 || response.status === 304) return res.end()
       res.send(payload)
     } catch {
-      res.status(502).json({ ok: false, error: 'KudiRail is temporarily unavailable. Nothing was signed or submitted.' })
+      res.status(502).json({ ok: false, error: 'KudiRail is temporarily unavailable. A previous request may still be processing; refresh its status before retrying.' })
     }
   }
 }

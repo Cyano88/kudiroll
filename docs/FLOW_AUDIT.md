@@ -27,7 +27,7 @@ Status: audited changes prepared for Git publication; production deployment is n
 - Enterprise: separate records and navigation are implemented locally. Funding and policy still belong to the same wallet. Staff roles, independent approvers and organizational authorization are not implemented.
 - Layout: existing desktop/mobile Enterprise structure was inspected with synthetic data. New saved-run navigation was exercised in the browser; amount edits remove its review. Avoid a broad visual redesign while payment recovery work is open.
 
-## Open work, in order
+## Findings at the audit checkpoint (see remediation below)
 
 1. **High - durable funding recovery.** `App.tsx:shieldUsdc` still treats a timeout/storage failure as failed; a hash is displayed only after the server write. Capture the returned public hash before storage, preserve late results, persist a recoverable attempt and prevent blind resubmission. Include refresh/reload, lost response and failed persistence tests.
 2. **High - atomic bank-order creation.** Standalone `phase0-router.ts` checks eligibility, calls Paycrest, then records the order in separate steps. Concurrent requests can create provider orders before either record exists. Introduce a durable per-account reservation and provider idempotency/reconciliation; a process-local mutex is insufficient across replicas. This race was identified in source, not exercised against live Paycrest.
@@ -47,3 +47,18 @@ Status: audited changes prepared for Git publication; production deployment is n
 - Previous Enterprise checks in this working session covered standard/Enterprise team and history isolation, private-only payroll controls, bank beta copy, and a 390-pixel mobile viewport.
 
 These changes need backend-first deployment with the existing Enterprise changes. This audit does not claim that open recovery and concurrency issues are fixed or that live production includes the local patch.
+
+
+## Recovery remediation - 6 September 2026
+
+Items 1-5 above now have follow-up implementation:
+
+- Funding starts with a server-persisted attempt, serialized through the existing account transaction. A second attempt is rejected. Wallet-returned public hashes are saved locally before server persistence and are captured even after a UI timeout. The attempt remains visible after reload until receipt recovery or explicit, recently authenticated no-deposit confirmation. Old or mismatched attempt IDs cannot clear it; padded reuse of an older funding hash is rejected.
+- KudiRail reserves bank order creation before provider calls. The same durable reference is passed to Paycrest. Validation failures before the order POST release the reservation; any ambiguous error after invocation retains it. Recovery matches the saved reference and preserves Enterprise scope. This does not assume Paycrest supports an idempotency header. Automatic lookup examines the provider's existing recent-order page; an absent match never proves non-creation or unlocks a retry. Older orders can be recovered by order ID, or require Paycrest support to locate the reference. The non-durable KudiRoll fallback now rejects bank order creation in both workspaces.
+- Generic payroll PATCH can no longer move submitting to failed. Submitting or unknown runs without a hash require explicit no-transaction confirmation and fresh wallet or passkey authentication through the recovery endpoint. History also accepts a recovered transaction hash. These operator confirmations are not cryptographic proof that a wallet never broadcast.
+- Session-bound HTTP requests carry the expected wallet account, checked against the current authenticated session in both services and forwarded through the proxy. Stale account responses and wallet balance results are rejected; logout remounts the workspace and cross-tab sign-in/out broadcasts invalidate old UI state. Proxy errors now disclose possible processing instead of asserting nothing happened.
+- Funding and bank recovery controls are reachable without initiating another payment. Synthetic mobile browser verification showed the funding notice, disabled preview, successful explicit no-deposit recovery, retained bank recovery notice, 390px content width at a 390px viewport and zero console errors.
+
+Validation: full suites passed at 89 KudiRoll / 73 KudiRail tests, followed by passing added authenticated recovery HTTP tests in both repos (90 / 74 total tests). Both builds passed. These tests use temporary files and mocked provider responses; the PostgreSQL implementation uses its existing transaction-scoped advisory lock, but no multi-replica production fault injection was performed. No real wallet transaction or provider order was created.
+
+Remaining work: cross-workspace deep links, provider reconciliation with Paycrest, organization roles and component simplification remain separate. The funding receipt is public tracking metadata; attaching it is not itself onchain finality or proof of a private note. The existing chain maturity checks remain distinct. Deploy the backend before the frontend and preserve optional attempt fields on rollback.

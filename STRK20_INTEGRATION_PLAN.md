@@ -372,3 +372,6 @@ Next phase: organization identity and membership, independent preparer/approver 
 Freshness check: Wallet API stable 0.10.3; 0.10.4-rc.1 is in flight. Discovery next 6.0.4 and wallet-standard next 6.0.5 differ from old skill pins; the app retains its tested 10.7.0 / 6.0.4 / 0.10.3 dependencies. No new wallet API method or shadow-account route is introduced.
 
 Phase 1 implementation complete locally: see docs/ENTERPRISE.md for scope, tests and rollout order. Live Enterprise wallet approval and deployment have not been performed. Shared-role authorization remains phase 2.
+
+
+Recovery hardening authorized by the owner: durable funding and bank creation attempts, receipt recovery, explicit payroll retry review, and session-account request binding. This reuses the existing Wallet API and stores only public funding receipt metadata. See docs/FLOW_AUDIT.md for remediation, validation and remaining provider dependencies.

@@ -87,7 +87,8 @@ type SavedPayRun = { workspace?: PaymentWorkspace; id: string; teamId: string; t
 type BusinessProfile = { ownerName: string; businessName: string; jobTitle: string; email: string; phone: string; emailVerifiedAt: string; updatedAt: string }
 type PayrollPolicy = { version: number; reserveUsdc: string; maxPayRunUsdc: string; payoutsPaused: boolean; updatedAt: string }
 type TreasuryAuditEvent = { id: string; type: string; subjectId: string; summary: string; createdAt: string; previousHash: string; eventHash: string }
-type AccountData = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
+type FundingAttempt = { id: string; amountUsdc: string; createdAt: string }
+type AccountData = { fundingAttempt?: FundingAttempt | null; bankOrderAttempt?: { reference: string; workspace: PaymentWorkspace } | null; walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; bankPayouts: PaycrestOrderSummary[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: { credentialId: string; deviceType: string; backedUp: boolean; prfCapable: boolean; createdAt: string; lastUsedAt: string }[]; recoveryReady: boolean; encryptedWalletBackup: { available: true; updatedAt: string } | null; createdAt: string; updatedAt: string }
 type ProductSection = 'overview' | 'workers' | 'payroll' | 'activity' | 'providers' | 'settings' | 'lab' | 'enterprise'
 type Theme = 'light' | 'dark'
 
@@ -135,6 +136,21 @@ const payoutStatusLabels: Record<Phase0Order['displayStatus'], string> = {
 }
 
 export function App() {
+  const [sessionKey, setSessionKey] = useState(0)
+  useEffect(() => {
+    const changed = (event: StorageEvent) => { if (event.key === 'kudiroll-session-change') setSessionKey(key => key + 1) }
+    window.addEventListener('storage', changed)
+    return () => window.removeEventListener('storage', changed)
+  }, [])
+  return <WorkspaceApp key={sessionKey} onSessionReset={() => setSessionKey(key => key + 1)} />
+}
+
+function WorkspaceApp({ onSessionReset }: { onSessionReset: () => void }) {
+  const lifecycle = useRef({ active: true, owner: '' })
+  useEffect(() => { lifecycle.current.active = true; return () => { lifecycle.current.active = false } }, [])
+  function assertActive() { if (!sessionCurrent()) throw new Error('This session has ended or changed. Reopen the current workspace.') }
+  function announceSession() { try { window.localStorage.setItem('kudiroll-session-change', crypto.randomUUID()) } catch {} }
+
   const demoMode = isPublicDemoPath(window.location.pathname)
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -158,6 +174,13 @@ export function App() {
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null)
   const [walletChoices, setWalletChoices] = useState<WalletWithStarknetFeatures[]>([])
   const [accountData, setAccountData] = useState<AccountData | null>(demoMode ? demoAccount as AccountData : null)
+  lifecycle.current.owner = accountData?.walletAddress || ''
+  function sessionCurrent() { return lifecycle.current.active && lifecycle.current.owner === (accountData?.walletAddress || '') }
+  useEffect(() => {
+    if (wallet && accountData && BigInt(wallet.address) !== BigInt(accountData.walletAddress)) {
+      setWallet(null); setWalletVersions([]); setPrivateBalanceUsdc(null); setPrivateBalance('Not checked')
+    }
+  }, [accountData?.walletAddress, wallet])
   const [walletVersions, setWalletVersions] = useState<string[]>([])
   const [privateBalance, setPrivateBalance] = useState(demoMode ? '1.42 USDC' : 'Not checked')
   const [privateBalanceUsdc, setPrivateBalanceUsdc] = useState<number | null>(demoMode ? 1.42 : null)
@@ -180,7 +203,7 @@ export function App() {
   const [busy, setBusy] = useState('')
   const [now, setNow] = useState(Date.now())
   const [shieldAmount, setShieldAmount] = useState('1')
-  const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed'>('idle')
+  const [shieldState, setShieldState] = useState<'idle' | 'passed' | 'submitted' | 'failed' | 'unknown'>('idle')
   const [shieldMessage, setShieldMessage] = useState('Simulate first. Shielding then requires a public token approval and a public pool deposit in your wallet.')
   const [shieldTransactionHash, setShieldTransactionHash] = useState('')
   const [treasuryReadiness, setTreasuryReadiness] = useState<TreasuryReadiness | null>(demoMode ? demoTreasuryReadiness : null)
@@ -211,6 +234,7 @@ export function App() {
         headers: { Accept: 'application/json' },
       })
       const data = await response.json().catch(() => null)
+      assertActive()
       if (response.status === 401) {
         setAccountData(null)
         setEnteredApp(false)
@@ -222,6 +246,7 @@ export function App() {
       setEnteredApp(true)
       setSessionStatus('signed-in')
     } catch (error) {
+      if (!sessionCurrent()) return
       setSessionError(readableError(error))
       setSessionStatus('error')
     }
@@ -306,19 +331,22 @@ export function App() {
   }, [accountData?.walletAddress, paycrestOrders.map(item => `${item.id}:${item.displayStatus}:${item.chainStatus}`).join('|')])
 
   async function localJson(path: string, init: RequestInit = {}, attempts = 2) {
+    assertActive()
     let lastError: unknown
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), 12_000)
       try {
+        assertActive()
         const response = await fetch(kudiRailUrl(path, import.meta.env.VITE_KUDIRAIL_API_URL), {
           ...init,
           cache: 'no-store',
           credentials: 'include',
-          headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
+          headers: { Accept: 'application/json', ...(accountData?.walletAddress ? { 'X-KudiRoll-Account': accountData.walletAddress } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
           signal: controller.signal,
         })
         const data = await response.json().catch(() => null)
+        assertActive()
         if (!response.ok) throw new Error(data?.error || `Local API returned HTTP ${response.status}.`)
         return data
       } catch (error) {
@@ -338,6 +366,7 @@ export function App() {
       const data = await localJson('/api/phase0/paycrest/institutions')
       setInstitutions(Array.isArray(data.institutions) ? data.institutions : [])
     } catch (error) {
+      if (!sessionCurrent()) return
       setInstitutionError(readableError(error))
     }
   }
@@ -355,6 +384,7 @@ export function App() {
       setPaycrestConfigured(data.configured !== false)
       const orders = Array.isArray(data.orders) ? data.orders as PaycrestOrderSummary[] : []
       setPaycrestOrders(orders)
+      setAccountData(current => current ? { ...current, bankOrderAttempt: data.pendingCreation ?? null } : current)
       setOrder(current => {
         const scopedOrders = orders.filter(item => inPaymentWorkspace(item, workspace))
         const scopedCurrent = current && inPaymentWorkspace(current, workspace) ? current : null
@@ -367,6 +397,7 @@ export function App() {
         return active || scopedCurrent
       })
     } catch (error) {
+      if (!sessionCurrent()) return
       setOrderHistoryError(readableError(error))
     }
   }
@@ -383,10 +414,11 @@ export function App() {
       const data = await localJson('/api/phase0/paycrest/public') as PublicProbe
       setPublicProbe(data)
     } catch (error) {
+      if (!sessionCurrent()) return
       setPublicProbe(null)
       setProbeError(readableError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -404,6 +436,7 @@ export function App() {
         60_000,
         'Wallet connection timed out. Reopen the wallet and try again.',
       )
+      assertActive()
       requireStarknetMainnet(connected.chainId)
       if (accountData?.walletAddress && BigInt(connected.account.address) !== BigInt(accountData.walletAddress)) {
         throw new Error('This workspace belongs to a different Ready X account. Switch accounts in Ready X and try again.')
@@ -412,10 +445,11 @@ export function App() {
       setWalletVersions(connected.supportedApiVersions)
       return connected.account
     } catch (error) {
+      if (!sessionCurrent()) return null
       alert(readableError(error))
       return null
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -440,17 +474,19 @@ export function App() {
         setEmailAuthStep('secure')
         setEmailAuthNotice('Email verified and account linked. Secure this device to finish.')
       } else {
-        setAccountData(session.account)
+        announceSession()
+      setAccountData(session.account)
         setEnteredApp(true)
         setSessionStatus('signed-in')
       }
     } catch (error) {
+      if (!sessionCurrent()) return
       const message = readableError(error)
       alert(/timeout|timed out/i.test(message)
         ? 'Ready X connected, but the sign-in approval timed out. Open Ready X and click Continue with Ready X again; you do not need to reconnect.'
         : `Could not open your KudiRoll account. ${message}`)
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -460,13 +496,15 @@ export function App() {
       const request = await accountJson('/api/account/passkeys/authentication/options', { method: 'POST' })
       const response = await startAuthentication({ optionsJSON: request.options })
       const session = await accountJson('/api/account/passkeys/authentication/verify', { method: 'POST', body: JSON.stringify({ response }) })
+      announceSession()
       setAccountData(session.account)
       setEnteredApp(true)
       setSessionStatus('signed-in')
     } catch (error) {
+      if (!sessionCurrent()) return
       alert(`Could not sign in with this passkey. ${readableError(error)}`)
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -479,9 +517,10 @@ export function App() {
       setEmailAuthStep('verify')
       setEmailAuthNotice('We sent a six-digit code. It expires in 10 minutes.')
     } catch (error) {
+      if (!sessionCurrent()) return
       setEmailAuthNotice(readableError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -491,6 +530,7 @@ export function App() {
       setEmailAuthNotice('')
       const result = await accountJson('/api/account/email/authentication/verify', { method: 'POST', body: JSON.stringify({ code: emailCode }) })
       if (result.mode === 'signin') {
+        announceSession()
         setAccountData(result.account)
         if (result.account?.passkeys?.length) setEnteredApp(true)
         else {
@@ -503,9 +543,10 @@ export function App() {
         setEmailAuthNotice('Email verified. Link the Starknet account you want KudiRoll to use.')
       }
     } catch (error) {
+      if (!sessionCurrent()) return
       setEmailAuthNotice(readableError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -522,11 +563,12 @@ export function App() {
       alert(prfSecret ? 'Passkey created for sign-in with PRF support. This does not back up or recover your Ready wallet.' : 'Passkey created for sign-in, but this authenticator did not expose the PRF required for private-wallet recovery.')
       return true
     } catch (error) {
+      if (!sessionCurrent()) return false
       alert(`Could not create the passkey. ${readableError(error)}`)
       return false
     } finally {
       prfSecret?.fill(0)
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -579,12 +621,14 @@ export function App() {
   }
 
   async function accountJson(path: string, init: RequestInit = {}) {
+    assertActive()
     const response = await fetch(kudiRailUrl(path, import.meta.env.VITE_KUDIRAIL_API_URL), {
       ...init,
       credentials: 'include',
-      headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
+      headers: { Accept: 'application/json', ...(accountData?.walletAddress ? { 'X-KudiRoll-Account': accountData.walletAddress } : {}), ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...(init.headers || {}) },
     })
     const data = await response.json().catch(() => null)
+    assertActive()
     if (!response.ok) throw new Error(data?.error || `Account request returned HTTP ${response.status}.`)
     return data
   }
@@ -606,6 +650,7 @@ export function App() {
         setShieldMessage(readiness.message)
       }
     } catch (error) {
+      if (!sessionCurrent()) return
       setTreasuryError(readableError(error))
     }
   }
@@ -617,7 +662,8 @@ export function App() {
   }
 
   async function leaveWallet() {
-    await accountJson('/api/account/session', { method: 'DELETE' }).catch(() => undefined)
+    try { await accountJson('/api/account/session', { method: 'DELETE' }) }
+    catch (error) { window.alert(`Sign-out could not be confirmed. ${readableError(error)}`); return }
     const disconnectFeature = wallet?.walletProvider.features['standard:disconnect']
     if (disconnectFeature) await disconnectFeature.disconnect().catch(() => undefined)
     setWallet(null)
@@ -641,6 +687,9 @@ export function App() {
     resetOrder()
     setEnteredApp(false)
     setSessionStatus('signed-out')
+    lifecycle.current.active = false
+    announceSession()
+    onSessionReset()
   }
 
   async function deleteKudiRollAccount(confirmation: string) {
@@ -659,21 +708,24 @@ export function App() {
     setBusy('balance')
     try {
       const balances = await withTimeout(readPrivateUsdcBalance(wallet), 60_000)
+      assertActive()
       const units = BigInt(balances[0]?.balance || '0x0')
       const value = Number(units) / 1_000_000
       setPrivateBalanceUsdc(value)
       setPrivateBalance(`${value} USDC`)
       return value
     } catch (error) {
+      if (!sessionCurrent()) return null
       setPrivateBalanceUsdc(null)
       setPrivateBalance(privateBalanceError(error))
       return null
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
   async function simulateShield() {
+    if (accountData?.fundingAttempt) return setShieldMessage('Recover the previous funding attempt before depositing again.')
     if (!wallet || !supportsStrk20Api(walletVersions)) {
       setShieldState('failed')
       setShieldMessage('Connect Ready X or another wallet that advertises STRK20 Wallet API 0.10.3 or newer.')
@@ -683,33 +735,90 @@ export function App() {
     setShieldTransactionHash('')
     try {
       await withTimeout(simulateUsdcShield(wallet, shieldAmount), 90_000)
+      assertActive()
       setShieldState('passed')
       setShieldMessage('Preview complete. No funds moved. Ready X will show the public token approval and pool deposit before anything is submitted.')
     } catch (error) {
+      if (!sessionCurrent()) return
       setShieldState('failed')
       setShieldMessage(privacyActionError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
   async function shieldUsdc() {
-    if (!wallet || shieldState !== 'passed') return
+    if (!wallet || shieldState !== 'passed' || accountData?.fundingAttempt) return
     setBusy('submit-shield')
+    let attempt: FundingAttempt | null = null
     try {
-      const result = await withTimeout(submitUsdcShield(wallet, shieldAmount), 180_000, 'The wallet did not return before timeout. Check your wallet and Starkscan before retrying; the transaction may still have been submitted.')
-      await accountJson('/api/account/treasury/shields', { method: 'POST', body: JSON.stringify({ transactionHash: result.transaction_hash, amountUsdc: shieldAmount }) })
+      const begun = await accountJson('/api/account/treasury/funding-attempt', { method: 'POST', body: JSON.stringify({ amountUsdc: shieldAmount }) })
+      attempt = begun.attempt
+      if (!attempt?.id) throw new Error('Funding attempt was not recorded. No wallet request was opened.')
+      setAccountData(current => current ? { ...current, fundingAttempt: attempt } : current)
+      const pending = attempt
+      const owner = accountData!.walletAddress
+      const storageKey = `kudiroll-funding-receipt:${owner}:${pending.id}`
+      const submission = submitUsdcShield(wallet, pending.amountUsdc).then(async result => {
+        const hash = result.transaction_hash
+        if (!hash) throw new Error('Ready returned no funding transaction hash.')
+        // Only public receipt metadata is persisted; no wallet keys or notes.
+        try { window.localStorage.setItem(storageKey, hash) } catch {}
+        assertActive()
+        setShieldTransactionHash(hash)
+        setShieldState('unknown')
+        setShieldMessage('Ready returned a transaction hash. Saving its funding receipt; do not deposit again.')
+        await accountJson('/api/account/treasury/shields', { method: 'POST', body: JSON.stringify({ transactionHash: hash, amountUsdc: pending.amountUsdc, attemptId: pending.id }) })
+        try { window.localStorage.removeItem(storageKey) } catch {}
+        await refreshAccount()
+        setShieldState('submitted')
+        setShieldMessage('Funding receipt saved. Checking finality and maturity.')
+        await loadTreasuryReadiness()
+      })
+      await withTimeout(submission, 180_000, 'Funding outcome is unknown. Check Ready activity and recover this attempt before depositing again.')
+    } catch (error) {
+      if (!sessionCurrent()) return
+      setShieldState('unknown')
+      setShieldMessage(`${privacyActionError(error)} Refresh funding status and recover the existing attempt; do not repeat the deposit.`)
+      await refreshAccount().catch(() => null)
+    } finally { if (sessionCurrent()) setBusy('') }
+  }
+
+  async function recoverFunding() {
+    const attempt = accountData?.fundingAttempt
+    if (!attempt) return
+    const key = `kudiroll-funding-receipt:${accountData.walletAddress}:${attempt.id}`
+    let saved = ''
+    try { saved = window.localStorage.getItem(key) || '' } catch {}
+    const hash = window.prompt('Paste the existing deposit transaction hash from Ready. Leave blank only if you have verified no deposit was submitted.', saved)
+    if (hash === null) return
+    setBusy('recover-funding')
+    try {
+      if (hash.trim()) {
+        setShieldTransactionHash(hash.trim())
+        await accountJson('/api/account/treasury/shields', { method: 'POST', body: JSON.stringify({ transactionHash: hash.trim(), amountUsdc: attempt.amountUsdc, attemptId: attempt.id }) })
+      } else {
+        const confirmation = window.prompt('Check Ready activity, including pending transactions. Type NO DEPOSIT IN READY only when no deposit was submitted. Fresh sign-in within five minutes is required.')
+        if (confirmation !== 'NO DEPOSIT IN READY') return
+        await accountJson('/api/account/treasury/funding-attempt/resolve', { method: 'POST', body: JSON.stringify({ attemptId: attempt.id, confirmation }) })
+      }
+      try { window.localStorage.removeItem(key) } catch {}
+      setShieldState('idle')
       await refreshAccount()
-      setShieldState('submitted')
-      setShieldTransactionHash(result.transaction_hash)
-      setShieldMessage('Shield transaction submitted. KudiRoll is checking Starknet finality and the required 10-block maturity window.')
       await loadTreasuryReadiness()
     } catch (error) {
-      setShieldState('failed')
-      setShieldMessage(privacyActionError(error))
-    } finally {
-      setBusy('')
-    }
+      if (!sessionCurrent()) return setShieldState('unknown'); setShieldMessage(readableError(error)) }
+    finally { setBusy('') }
+  }
+
+  async function recoverBankCreation() {
+    setBusy('recover-bank-order')
+    try {
+      await localJson('/api/phase0/paycrest/creation/recover', { method: 'POST' }, 1)
+      await refreshHistory()
+    } catch (error) {
+      if (!sessionCurrent()) return setOrderError(readableError(error)) }
+    finally { setBusy('') }
   }
 
   function resetOrder() {
@@ -742,10 +851,11 @@ export function App() {
       }, 1)
       setVerifiedAccount({ accountName: String(data.account.accountName), fingerprint })
     } catch (error) {
+      if (!sessionCurrent()) return
       setVerifiedAccount(null)
       setOrderError(readableError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -786,9 +896,10 @@ export function App() {
         setOrderError('Paycrest created the order, but its exact USDC total exceeds your current private balance. Do not pay this order.')
       }
     } catch (error) {
+      if (!sessionCurrent()) return
       setOrderError(readableError(error))
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -803,10 +914,11 @@ export function App() {
       setSimulationState('passed')
       setSimulationMessage('Preview complete. No funds moved. Review the details, then approve the payment in Ready X.')
     } catch (error) {
+      if (!sessionCurrent()) return
       setSimulationState('failed')
       setSimulationMessage(`Simulation rejected: ${readableError(error)}`)
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -826,6 +938,7 @@ export function App() {
       setSimulationMessage(transactionLabel(result))
       await loadPaycrestOrders()
     } catch (error) {
+      if (!sessionCurrent()) return
       const message = privacyActionError(error)
       const cancelled = /cancelled|USER_REFUSED|USER_REJECTED|rejected by user/i.test(readableError(error))
       if (trackedOrder) await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(trackedOrder.id)}/submission`, { method: 'POST', body: JSON.stringify({ state: cancelled ? 'cancelled' : 'unknown' }) }, 1).catch(() => null)
@@ -833,7 +946,7 @@ export function App() {
       setSimulationMessage(cancelled ? message : `${message}${submittedHash ? ` Ready returned transaction ${submittedHash}.` : ''} KudiRail has blocked duplicate payment until this attempt is reconciled.`)
       void loadPaycrestOrders()
     } finally {
-      setBusy('')
+      if (sessionCurrent()) setBusy('')
     }
   }
 
@@ -843,6 +956,7 @@ export function App() {
       await localJson(`/api/phase0/paycrest/orders/${encodeURIComponent(orderId)}/reconcile`, { method: 'POST' }, 1)
       await loadPaycrestOrders()
     } catch (error) {
+      if (!sessionCurrent()) return
       setOrderError(`Could not reconcile this payment. ${readableError(error)}`)
     } finally { setBusy('') }
   }
@@ -850,7 +964,7 @@ export function App() {
   async function exportPayoutEvidence(orderId: string) {
     setBusy(`evidence:${orderId}`)
     try {
-      const response = await fetch(kudiRailUrl(`/api/phase0/paycrest/orders/${encodeURIComponent(orderId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      const response = await fetch(kudiRailUrl(`/api/phase0/paycrest/orders/${encodeURIComponent(orderId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store', headers: { 'X-KudiRoll-Account': accountData?.walletAddress || '' } })
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `HTTP ${response.status}`)
       const url = URL.createObjectURL(await response.blob())
       const anchor = document.createElement('a')
@@ -859,6 +973,7 @@ export function App() {
       anchor.click()
       URL.revokeObjectURL(url)
     } catch (error) {
+      if (!sessionCurrent()) return
       setOrderError(`Could not export incident evidence. ${readableError(error)}`)
     } finally { setBusy('') }
   }
@@ -901,7 +1016,9 @@ export function App() {
     />
   }
 
+  const bankCreationNotice = accountData?.bankOrderAttempt && <div className="inlineError"><strong>Bank order creation needs recovery</strong><p>Reference: {accountData.bankOrderAttempt.reference}. A provider response is missing. Do not create another order.</p>{orderError && <p>{orderError}</p>}<button onClick={recoverBankCreation} disabled={Boolean(busy)}>Find existing bank order</button></div>
   const paycrestPilot = <div className="sectionStack paycrestPilot">
+    {bankCreationNotice}
     <section className="panel sectionIntro">
       <div><span className="panelKicker">Bank payout</span><h2>Pay a Nigerian bank account</h2><p>Pay from shielded USDC. The withdrawal address and amount are public; Paycrest and the bank receive the beneficiary details.</p></div>
       <span className="statePill neutral">{liveOrdersEnabled ? 'Beta' : 'Unavailable'}</span>
@@ -927,10 +1044,10 @@ export function App() {
       {accountIsVerified && <div className="verifiedBox"><span>Verified recipient</span><strong>{verifiedAccount.accountName}</strong><small>{institutions.find(item => item.code === bankCode)?.name} · account ending {accountIdentifier.slice(-4)}</small></div>}
       <div className="orderGate">
         <label>Amount to receive<input value={amountNgn} onChange={event => { setAmountNgn(event.target.value.replace(/[^\d.]/g, '')); resetOrder() }} inputMode="decimal" disabled={Boolean(order)} /><small>NGN</small></label>
-        <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || Boolean(order)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Continue to payment' : 'Payout unavailable'}</button>
+        <button onClick={createOrder} disabled={!liveOrdersEnabled || Boolean(busy) || !wallet || privateBalanceUsdc === null || !accountIsVerified || Boolean(order) || Boolean(accountData?.bankOrderAttempt)}>{liveOrdersEnabled ? busy === 'create-order' ? 'Creating order…' : 'Continue to payment' : 'Payout unavailable'}</button>
       </div>
       {orderError && <div className="errorBox"><strong>Could not continue</strong><span>{orderError}</span></div>}
-      {!trackedOrder && <details className="shieldDetails"><summary>Recover an earlier wallet payment</summary><div className="formGrid"><label>Paycrest order ID<input value={recoveryOrderId} onChange={event => setRecoveryOrderId(event.target.value)} autoComplete="off" /></label><label>Starknet transaction hash<input value={recoveryTransactionHash} onChange={event => setRecoveryTransactionHash(event.target.value)} autoComplete="off" /></label><div className="fieldAction"><button className="secondary" onClick={recoverEarlierPayout} disabled={Boolean(busy) || !recoveryOrderId.trim() || !/^0x[0-9a-fA-F]{1,64}$/.test(recoveryTransactionHash.trim())}>{busy === 'recover-payout' ? 'Recovering...' : 'Recover payment'}</button></div></div><p>KudiRail verifies that the order belongs to this signed-in Starknet account, then compares the exact wallet transaction with Paycrest.</p></details>}
+      {!trackedOrder && <details className="shieldDetails"><summary>Recover an earlier order or payment</summary><div className="formGrid"><label>Paycrest order ID<input value={recoveryOrderId} onChange={event => setRecoveryOrderId(event.target.value)} autoComplete="off" /></label><label>Transaction hash (optional for an unpaid order)<input value={recoveryTransactionHash} onChange={event => setRecoveryTransactionHash(event.target.value)} autoComplete="off" /></label><div className="fieldAction"><button className="secondary" onClick={recoverEarlierPayout} disabled={Boolean(busy) || !recoveryOrderId.trim() || Boolean(recoveryTransactionHash.trim() && !/^0x[0-9a-fA-F]{1,64}$/.test(recoveryTransactionHash.trim()))}>{busy === 'recover-payout' ? 'Recovering...' : 'Recover payment'}</button></div></div><p>KudiRail verifies that the order belongs to this signed-in Starknet account, then compares the exact wallet transaction with Paycrest.</p></details>}
       {trackedOrder && <PayoutReceipt order={trackedOrder} status={currentOrderStatus} busy={busy} orderExpired={orderExpired} exactAmountCovered={exactAmountCovered} simulationState={simulationState} onSimulate={simulate} onReconcile={reconcilePayout} onExport={exportPayoutEvidence} onClose={resetOrder} />}
       {trackedOrder && <div className={`simulation ${simulationState}`}><strong>{trackedOrder.displayStatus === 'reconciliation-required' ? 'Provider reconciliation needed' : simulationState === 'passed' ? 'Payment ready' : trackedOrder.transactionHash ? currentOrderStatus : 'Payment preview'}</strong><span>{trackedOrder.reconciliationReason || trackedOrder.chainMessage || simulationMessage}</span></div>}
       {simulationState === 'passed' && trackedOrder && !trackedOrder.transactionHash && <section className="paymentApproval" aria-label="Approve bank payout"><div><span>Final review</span><strong>Pay {trackedOrder.amountUsdc} USDC</strong><p>{trackedOrder.accountName} receives ₦{trackedOrder.amountNgn}. Ready X will show the final wallet approval; cancelling it sends nothing.</p></div><button onClick={submit} disabled={Boolean(busy) || orderExpired}>{busy === 'submit' ? 'Waiting for approval…' : 'Approve in Ready X'}</button></section>}
@@ -944,9 +1061,11 @@ export function App() {
     <details className="shieldDetails"><summary>How funding works</summary><div className="shieldSteps"><div><strong>1</strong><span>Approve USDC</span></div><div><strong>2</strong><span>Deposit funds</span></div><div><strong>3</strong><span>Wait for confirmation</span></div></div><p>Ready X shows the current network and pool fees before you approve.</p></details>
     <div className="treasuryTracker"><div><span>Status</span><strong>{treasuryReadiness?.message || 'No funding transaction is being tracked.'}</strong></div><button className="plainButton" onClick={loadTreasuryReadiness} disabled={!accountData || Boolean(busy)}>Refresh</button></div>
     {treasuryError && <div className="inlineError">{treasuryError}</div>}
-    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
+    {bankCreationNotice}
+    <div className="shieldControls"><label>Amount<input value={shieldAmount} onChange={event => { setShieldAmount(event.target.value.replace(/[^\d.]/g, '')); setShieldState('idle') }} inputMode="decimal" placeholder="1.00" /><small>USDC</small></label><button onClick={simulateShield} disabled={!wallet || Boolean(busy) || Boolean(accountData?.fundingAttempt)}>{busy === 'simulate-shield' ? 'Opening preview…' : 'Preview funding'}</button></div>
     {shieldState !== 'idle' && <div className={'simulation ' + shieldState}><strong>{shieldState === 'passed' ? 'Ready to fund' : shieldState === 'submitted' ? 'Funding submitted' : 'Funding needs attention'}</strong><span>{shieldMessage}</span>{shieldTransactionHash && <a href={'https://starkscan.co/tx/' + shieldTransactionHash} target="_blank" rel="noreferrer">Open transaction on Starkscan</a>}</div>}
-    {shieldState === 'passed' && <div className="shieldApproval"><span>Ready X may request separate token approval and deposit transactions. Check wallet activity if you cancel partway through.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
+    {accountData?.fundingAttempt && <div className="inlineError"><strong>Funding attempt needs recovery</strong><p>A previous funding request may have been submitted. Recover its receipt or confirm no deposit after checking Ready.</p><button onClick={recoverFunding} disabled={Boolean(busy)}>Recover funding attempt</button></div>}
+    {shieldState === 'passed' && !accountData?.fundingAttempt && <div className="shieldApproval"><span>Ready X may request separate token approval and deposit transactions. Check wallet activity if you cancel partway through.</span><button onClick={shieldUsdc} disabled={Boolean(busy)}>{busy === 'submit-shield' ? 'Waiting for approval…' : 'Fund ' + (shieldAmount || '0') + ' USDC'}</button></div>}
   </section>
 
   return <ProductShell
@@ -1468,18 +1587,18 @@ function ProductShell({
         setBatchState('unknown')
         setBatchMessage(recoveredHash
           ? `Ready returned ${shortAddress(recoveredHash)}, but KudiRoll could not confirm durable storage. Do not retry; keep this hash and verify it from History when the service recovers.`
-          : 'Ready has not returned a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
+          : 'Ready did not confirm a transaction hash. Do not submit this payroll again; keep this page open for late recovery and check Ready before taking further action.')
       } else if (/controls changed|current private balance|protected .* reserve/i.test(message)) {
-        if (submissionAuthorized) await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
-        setBatchState('failed')
-        setBatchMessage(`${message} No wallet transaction was opened.`)
+        if (submissionAuthorized) await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown' }).catch(() => onRefreshHistory())
+        setBatchState(submissionAuthorized ? 'unknown' : 'failed')
+        setBatchMessage(`${message} No wallet transaction was opened.${submissionAuthorized ? ' Review this attempt in History before retrying.' : ''}`)
       } else {
         if (submissionAuthorized) {
-          await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'failed' }).catch(() => onRefreshHistory())
-          setActivePayRun(current => current?.id === activePayRun.id ? { ...current, status: 'failed' } : current)
+          await updateRailPayRun(onMutateAccount, activePayRun.id, { status: 'unknown' }).catch(() => onRefreshHistory())
+          setActivePayRun(current => current?.id === activePayRun.id ? { ...current, status: 'unknown' } : current)
         } else onRefreshHistory()
-        setBatchState('failed')
-        setBatchMessage(`Payroll was not submitted: ${message}`)
+        setBatchState(submissionAuthorized ? 'unknown' : 'failed')
+        setBatchMessage(`No wallet request was opened: ${message}. Refresh History before retrying.`)
       }
     } finally { setAccountAction('') }
   }
@@ -1490,7 +1609,7 @@ function ProductShell({
     if (!run || !['draft', 'prepared', 'failed'].includes(run.status)) return
     setAccountAction(`review-pay-run:${payRunId}`)
     try {
-      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/execution-manifest`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/execution-manifest`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store', headers: { 'X-KudiRoll-Account': sourceAccountData?.walletAddress || '' } })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Could not load the saved pay run.')
       if (data.executionManifest?.payRunId !== run.id || (enterprise && data.executionManifest.workspace !== 'enterprise')) throw new Error('Saved pay run does not match this workspace.')
@@ -1519,6 +1638,13 @@ function ProductShell({
   }
 
   async function resolveUnknownPayRun(payRunId: string) {
+    const recoveredHash = window.prompt('If Ready shows a submitted transaction, paste its hash. Otherwise leave blank to review a retry.')
+    if (recoveredHash === null) return
+    if (recoveredHash.trim()) {
+      try { await updateRailPayRun(onMutateAccount, payRunId, { status: 'submitted', transactionHash: recoveredHash.trim() }) }
+      catch (error) { window.alert(readableError(error)) }
+      return
+    }
     const confirmation = window.prompt('First check Ready activity and confirm that no transaction was submitted. Then type NO TRANSACTION IN READY to unlock payroll retries.')
     if (confirmation !== 'NO TRANSACTION IN READY') return
     setAccountAction(`resolve-pay-run:${payRunId}`)
@@ -1532,7 +1658,7 @@ function ProductShell({
   async function exportPayRunEvidence(payRunId: string) {
     setAccountAction(`evidence-pay-run:${payRunId}`)
     try {
-      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store' })
+      const response = await fetch(kudiRailUrl(`/api/v1/pay-runs/${encodeURIComponent(payRunId)}/evidence`, import.meta.env.VITE_KUDIRAIL_API_URL), { credentials: 'include', cache: 'no-store', headers: { 'X-KudiRoll-Account': sourceAccountData?.walletAddress || '' } })
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || `HTTP ${response.status}`)
       const url = URL.createObjectURL(await response.blob())
       const anchor = document.createElement('a')
@@ -1839,7 +1965,7 @@ function PayRunRow({ run, compact = false, onReview, onVerify, onResolveUnknown,
     <div className="historyIdentity"><span className="historyMark"><AppIcon name="people" /></span><div><strong>{run.teamName}</strong>{run.transactionHash ? <a href={`https://starkscan.co/tx/${run.transactionHash}`} target="_blank" rel="noreferrer">{shortAddress(run.transactionHash)}</a> : <span>{run.items.length} {run.items.length === 1 ? 'worker' : 'workers'} · saved snapshot</span>}</div></div>
     {!compact && <div className="historyAmount"><strong>{run.totalUsdc} USDC</strong><span>{run.settlementMode === 'private' ? 'Fully private' : 'Direct wallet payout'}</span></div>}
     <div className="historyStatus"><span className={`statePill ${safe ? 'safe' : blocked ? 'blocked' : 'neutral'}`}>{run.status}</span><small>{detail}</small></div>
-    {!compact && <div className="historyMeta payrollActions"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : run.status === 'unknown' && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}{onReview && ['draft', 'prepared', 'failed'].includes(run.status) && <button className="rowAction" onClick={() => onReview(run.id)} disabled={verifying}>Review saved run</button>}{onExport && <button className="rowAction" onClick={() => onExport(run.id)} disabled={verifying}>{verifying ? 'Preparing...' : 'Export evidence'}</button>}</div>}
+    {!compact && <div className="historyMeta payrollActions"><strong>{new Date(run.createdAt).toLocaleDateString()}</strong>{run.transactionHash && run.status !== 'reverted' && onVerify ? <button className="plainButton" onClick={() => onVerify(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Verify onchain'}</button> : ['unknown', 'submitting'].includes(run.status) && !run.transactionHash && onResolveUnknown ? <button className="plainButton" onClick={() => onResolveUnknown(run.id)} disabled={verifying}>{verifying ? 'Checking…' : 'Review before retry'}</button> : <span>{run.acceptedBlockNumber === null ? shortAddress(run.id) : `Block ${run.acceptedBlockNumber}`}</span>}{onReview && ['draft', 'prepared', 'failed'].includes(run.status) && <button className="rowAction" onClick={() => onReview(run.id)} disabled={verifying}>Review saved run</button>}{onExport && <button className="rowAction" onClick={() => onExport(run.id)} disabled={verifying}>{verifying ? 'Preparing...' : 'Export evidence'}</button>}</div>}
   </article>
 }
 

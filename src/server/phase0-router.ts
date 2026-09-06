@@ -67,8 +67,7 @@ export function createPhase0Router() {
   router.post('/paycrest/order', async (req, res) => {
     try {
       const refundAddress = await requireSessionAddress(req)
-      if (paymentWorkspace(req.body?.workspace) === 'enterprise') throw Object.assign(new Error('Enterprise bank payouts require the KudiRail backend for durable records.'), { status: 503 })
-      res.json({ ok: true, order: await createPhase0PaycrestOrder({ ...req.body, refundAddress }) })
+      throw Object.assign(new Error('Bank payouts require the KudiRail backend for durable order recovery.'), { status: 503 })
     } catch (error) {
       res.status(statusOf(error)).json({ ok: false, error: messageOf(error) })
     }

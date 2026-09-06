@@ -83,7 +83,7 @@ export type PayrollPolicySnapshot = Pick<PayrollPolicy, 'version' | 'reserveUsdc
 
 export type TreasuryAuditEvent = {
   id: string
-  type: 'treasury-shield.recorded' | 'payroll-policy.updated' | 'pay-run.created' | 'pay-run.prepared' | 'pay-run.submission-started' | 'pay-run.submitted' | 'pay-run.unknown' | 'pay-run.failed' | 'pay-run.finalized' | 'pay-run.reverted'
+  type: 'treasury-shield.released' | 'treasury-shield.recorded' | 'payroll-policy.updated' | 'pay-run.created' | 'pay-run.prepared' | 'pay-run.submission-started' | 'pay-run.submitted' | 'pay-run.unknown' | 'pay-run.failed' | 'pay-run.finalized' | 'pay-run.reverted'
   subjectId: string
   summary: string
   createdAt: string
@@ -116,7 +116,8 @@ export type EncryptedWalletBackup = {
   updatedAt: string
 }
 
-export type AccountRecord = { walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
+export type FundingAttempt = { id: string; amountUsdc: string; createdAt: string }
+export type AccountRecord = { fundingAttempt?: FundingAttempt | null; walletAddress: string; profile: BusinessProfile; payrollPolicy: PayrollPolicy; teams: SavedTeam[]; payRuns: SavedPayRun[]; treasuryShields: TreasuryShieldRecord[]; treasuryAudit: TreasuryAuditEvent[]; passkeys: SavedPasskey[]; encryptedWalletBackup: EncryptedWalletBackup | null; createdAt: string; updatedAt: string }
 export type StoreFile = { version: 1; accounts: Record<string, AccountRecord> }
 
 const storePath = resolve(process.env.KUDIROLL_DATA_FILE || '.data/kudiroll.json')
@@ -270,6 +271,7 @@ export function publicAccount(account: AccountRecord) {
     teams: account.teams,
     payRuns: account.payRuns.map(publicPayRun),
     treasuryShields: account.treasuryShields,
+    fundingAttempt: account.fundingAttempt ?? null,
     treasuryAudit: account.treasuryAudit.slice(-100),
     treasuryAuditVerified: verifyTreasuryAuditChain(account.treasuryAudit),
     passkeys: account.passkeys.map(({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt }) => ({ credentialId, deviceType, backedUp, prfCapable, createdAt, lastUsedAt })),
@@ -417,13 +419,42 @@ export async function getEncryptedWalletBackup(address: string) {
   return (await getAccount(address)).encryptedWalletBackup
 }
 
+export async function beginTreasuryFunding(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    if (account.fundingAttempt) throw Object.assign(new Error('Resolve the previous funding attempt before depositing again.'), { status: 409 })
+    const attempt = { id: randomUUID(), amountUsdc: amount(input?.amountUsdc), createdAt: new Date().toISOString() }
+    if (amountUnits(attempt.amountUsdc) <= 0n) throw Object.assign(new Error('Funding amount must be positive.'), { status: 400 })
+    account.fundingAttempt = attempt
+    account.updatedAt = attempt.createdAt
+    return attempt
+  })
+}
+
+export async function resolveTreasuryFunding(address: string, input: any) {
+  return mutate(store => {
+    const account = accountIn(store, address)
+    if (!account.fundingAttempt || account.fundingAttempt.id !== input?.attemptId) throw Object.assign(new Error('Funding attempt changed. Refresh before recovery.'), { status: 409 })
+    if (input?.confirmation !== 'NO DEPOSIT IN READY') throw Object.assign(new Error('Check Ready activity, then type NO DEPOSIT IN READY.'), { status: 400 })
+    appendTreasuryAudit(account, 'treasury-shield.released', account.fundingAttempt.id, 'Owner confirmed no deposit after fresh authentication.', new Date().toISOString())
+    account.fundingAttempt = null
+    account.updatedAt = new Date().toISOString()
+  })
+}
+
 export async function recordTreasuryShield(address: string, input: any) {
   return mutate(store => {
     const account = accountIn(store, address)
     const transactionHash = cleanText(input?.transactionHash, 80).toLowerCase()
     if (!/^0x[0-9a-f]{1,64}$/.test(transactionHash)) throw Object.assign(new Error('A valid Starknet transaction hash is required.'), { status: 400 })
-    const existing = account.treasuryShields.find(item => item.transactionHash === transactionHash)
-    if (existing) return existing
+    const attempt = account.fundingAttempt
+    if (attempt && (input?.attemptId !== attempt.id || amount(input?.amountUsdc) !== attempt.amountUsdc)) throw Object.assign(new Error('The funding receipt must match the active attempt.'), { status: 409 })
+    const existing = account.treasuryShields.find(item => BigInt(item.transactionHash) === BigInt(transactionHash))
+    if (existing) {
+      if (attempt) throw Object.assign(new Error('This receipt predates the current funding attempt.'), { status: 409 })
+      return existing
+    }
+    account.fundingAttempt = null
     const shield: TreasuryShieldRecord = { transactionHash, amountUsdc: amount(input?.amountUsdc), submittedAt: new Date().toISOString() }
     account.treasuryShields.unshift(shield)
     account.treasuryShields = account.treasuryShields.slice(0, 20)
@@ -644,7 +675,7 @@ export async function updatePayRun(address: string, payRunId: string, input: any
     const transitions: Record<SavedPayRun['status'], SavedPayRun['status'][]> = {
       draft: ['prepared', 'failed'],
       prepared: ['prepared', 'submitting', 'failed'],
-      submitting: ['submitted', 'unknown', 'failed'],
+      submitting: ['submitted', 'unknown'],
       unknown: ['submitted', 'unknown'],
       failed: ['prepared', 'failed'],
       submitted: ['submitted'],
@@ -723,7 +754,7 @@ export async function resolveUnknownPayRun(address: string, payRunId: string, co
     const account = accountIn(store, address)
     const payRun = account.payRuns.find(item => item.id === payRunId)
     if (!payRun) throw Object.assign(new Error('Pay run not found.'), { status: 404 })
-    if (payRun.status !== 'unknown' || payRun.transactionHash) throw Object.assign(new Error('Only an unknown submission without a recovered transaction hash can be released.'), { status: 409 })
+    if (!['unknown', 'submitting'].includes(payRun.status) || payRun.transactionHash) throw Object.assign(new Error('Only an unknown submission without a recovered transaction hash can be released.'), { status: 409 })
     if (cleanText(confirmation, 64) !== 'NO TRANSACTION IN READY') throw Object.assign(new Error('Type NO TRANSACTION IN READY after checking Ready activity.'), { status: 400 })
     payRun.status = 'failed'
     payRun.items = payRun.items.map(item => ({ ...item, status: 'failed' }))
