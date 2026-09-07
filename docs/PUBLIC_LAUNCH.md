@@ -16,7 +16,7 @@ KudiRoll remains a public alpha. This September 6, 2026 audit separates shipped 
 
 | Gate | Current state | Next evidence |
 | --- | --- | --- |
-| Managed backup and recovery | Isolated logical restore passed; production snapshot recovery unverified | Verify backup schedule and retention, restore a managed snapshot into isolation, measure recovery time/data loss, and reconcile payment state before retries. |
+| Backup and recovery | Encrypted production logical backup and isolated local restore passed September 7; managed backups require Pro | Use manual backups before releases. Complete independent archive copy and key escrow, then test recovery on another machine; reconcile payment state before retries. |
 | Encryption-key recovery and rotation | Encrypted storage is live; operational drills unverified | Demonstrate secure recovery of the matching key and a maintenance rotation with rollback. |
 | Account recovery | Durable sessions and recovery controls are implemented | Complete a two-device passkey/recovery exercise and verify revocation. Email delivery requires separate end-to-end certification. |
 | Scaling | Per-process rate limits | Keep one KudiRail replica until distributed rate limiting is implemented and verified. |
@@ -26,8 +26,8 @@ KudiRoll remains a public alpha. This September 6, 2026 audit separates shipped 
 
 ## Next operational sequence
 
-1. Verify the managed database backup schedule, retention and latest successful snapshot.
-2. Restore a snapshot into a separate environment with outbound payments and customer notifications disabled. Keep customer data and encryption keys out of public logs and artifacts.
+1. Repeat the [encrypted manual backup workflow](https://github.com/Cyano88/kudirail/blob/main/docs/MANUAL_BACKUP.md) before releases; no new subscription is required.
+2. Keep an independent encrypted archive copy and securely escrow its recovery key. Test recovery on another machine; the current Windows DPAPI key is tied to this account. Keep customer data and keys out of public logs and artifacts.
 3. Check account integrity, revoke restored sessions, and reconcile transaction/provider outcomes before enabling retries. Record recovery time and the snapshot's data-loss window.
 4. Complete key recovery/rotation and two-device account recovery exercises.
 5. Run a capped, invited-business pilot with monitored support and reconciliation outcomes before expanding access.
@@ -35,3 +35,7 @@ KudiRoll remains a public alpha. This September 6, 2026 audit separates shipped 
 A healthy release and the ability to redeploy older code do not establish safe data rollback. Never switch a populated PostgreSQL deployment back to an older file store. See [DATABASE.md](DATABASE.md) for the rollback boundary and the backend [restore drill](https://github.com/Cyano88/kudirail/blob/main/docs/RESTORE_DRILL.md) for coverage and limitations.
 
 Paycrest remains under the existing beta arrangement while the provider team works on reconciliation. This audit did not change route availability or submit payments.
+
+## September 7 backup update
+
+The real production logical export restored successfully into a disposable local database. All public tables matched snapshot fingerprints, every account decrypted, and restored sessions/challenges were revoked. The temporary database was removed and the SSH tunnel closed. Production was not restored or reconfigured. This completes the manual logical restore check, while independent-device recovery, retention automation and key escrow remain pending. See the backend [manual backup evidence and limitations](https://github.com/Cyano88/kudirail/blob/main/docs/MANUAL_BACKUP.md).

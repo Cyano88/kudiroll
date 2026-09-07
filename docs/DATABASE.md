@@ -33,3 +33,7 @@ Before PostgreSQL accepts new writes, rollback is switching both selectors to `f
 ## Managed recovery acceptance
 
 Verify the backup schedule and retention, then restore a managed snapshot into an isolated environment with payments and customer notifications disabled. Supply the matching encryption key through the secret store. Check account integrity, revoke restored sessions, and reconcile chain/provider outcomes before allowing retries: a backup can predate an actual payment. Record recovery duration and the data-loss window. The synthetic CI drill does not certify these managed recovery steps.
+
+## September 7 manual recovery verification
+
+An encrypted production logical export and isolated local restore passed, including snapshot table fingerprints, account decryption and restored session/challenge revocation. The disposable restored database was removed. Managed snapshots/PITR require the Pro plan and remain disabled; the current no-upgrade path is [manual encrypted backups](https://github.com/Cyano88/kudirail/blob/main/docs/MANUAL_BACKUP.md) before releases. The retained local archive uses a Windows-account-bound DPAPI recovery key; independent-copy/key-escrow recovery remains pending. This does not authorize restoring the live database or switching it to file storage.
